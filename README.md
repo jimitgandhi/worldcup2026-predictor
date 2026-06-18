@@ -163,7 +163,7 @@ No API key needed. Polled every 60s. Schedule screen also refreshes on app resum
 
 ## Web / PWA
 
-Live at: **[worldcup2026-predictor-2d036.web.app](https://worldcup2026-predictor-2d036.web.app)**
+Deploy to Firebase Hosting (`firebase deploy --only hosting`) and share the `.web.app` URL with your group.
 
 For iOS users: Safari → Share → "Add to Home Screen" for a native-like experience.
 

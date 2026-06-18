@@ -21,3 +21,6 @@ predictor_app/android/build/
 # Internal dev context — local only, not for public repo
 PROJECT_CONTEXT.md
 DEPLOYMENT_COMPLETE.md
+RELEASE_NOTES.md
+FIREBASE_WEB_SETUP.md
+IOS_INSTALL.md
