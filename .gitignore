@@ -1,0 +1,23 @@
+# Firebase / Google credentials — do NOT commit when open-sourcing
+# Generate new ones from Firebase console and keep locally
+predictor_app/android/app/google-services.json
+predictor_app/lib/firebase_options.dart
+predictor_app/ios/Runner/GoogleService-Info.plist
+
+# Firebase emulator / debug artifacts
+.firebase/
+firebase-debug.log
+firestore-debug.log
+ui-debug.log
+
+# Node / Functions
+functions/node_modules/
+functions/.env
+
+# Build artifacts
+predictor_app/build/
+predictor_app/android/build/
+
+# Internal dev context — local only, not for public repo
+PROJECT_CONTEXT.md
+DEPLOYMENT_COMPLETE.md

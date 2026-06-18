@@ -1,0 +1,44 @@
+name: predictor_app
+description: "FIFA World Cup 2026 Prediction Game"
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.12.2
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.8
+
+  # Firebase
+  firebase_core: ^3.13.1
+  firebase_auth: ^5.5.4
+  cloud_firestore: ^5.6.7
+  google_sign_in: ^6.3.0
+
+  # HTTP for ESPN API
+  http: ^1.4.0
+
+  # UI / utilities
+  cached_network_image: ^3.4.1
+  intl: ^0.20.2
+  shimmer: ^3.0.0
+  flutter_animate: ^4.5.2
+  google_fonts: ^6.2.1
+  # Notifications
+  flutter_local_notifications: ^18.0.1
+  timezone: ^0.9.4
+  flutter_timezone: ^5.0.0
+  # Sharing
+  share_plus: ^10.1.4
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/images/

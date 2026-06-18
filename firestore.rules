@@ -1,0 +1,86 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isAdmin() {
+      return request.auth != null &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('isAdmin', false) == true;
+    }
+
+    // Fields only admin or server-side logic can write — never the user themselves (on update)
+    function hasProtectedFields() {
+      return request.resource.data.diff(resource.data).affectedKeys()
+        .hasAny(['isAdmin', 'totalPoints', 'rank', 'predictionsCount',
+                  'exactCount', 'correctPlusOneCount', 'correctResultCount', 'oneScoreCount']);
+    }
+
+    // Same set of protected fields — none may appear in a newly created user doc
+    function hasProtectedCreateFields() {
+      return request.resource.data.keys().hasAny([
+        'isAdmin', 'totalPoints', 'rank', 'predictionsCount',
+        'exactCount', 'correctPlusOneCount', 'correctResultCount', 'oneScoreCount'
+      ]);
+    }
+
+    // Server-side kickoff deadline: match must not have kicked off yet
+    function matchNotKickedOff(matchId) {
+      return get(/databases/$(database)/documents/matches/$(matchId)).data.kickoff > request.time;
+    }
+
+    // Matches — admin can write, everyone can read
+    match /matches/{matchId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // Predictions
+    match /predictions/{predictionId} {
+      // Admin has full access
+      allow read, write: if isAdmin();
+
+      // Users can fetch their own prediction by doc ID
+      allow get: if request.auth != null &&
+        predictionId.matches(request.auth.uid + '_.*');
+
+      // List: authenticated users can list predictions (needed for leaderboard popup
+      // which shows another user's past predictions). Client filters to kickoffTime < now.
+      allow list: if request.auth != null;
+
+      // Create: own doc only, userId field must match auth, match must not have kicked off
+      allow create: if request.auth != null &&
+        predictionId.matches(request.auth.uid + '_.*') &&
+        request.resource.data.userId == request.auth.uid &&
+        matchNotKickedOff(request.resource.data.matchId);
+
+      // Update: own doc only, userId cannot change, match must not have kicked off
+      allow update: if request.auth != null &&
+        predictionId.matches(request.auth.uid + '_.*') &&
+        request.resource.data.userId == request.auth.uid &&
+        resource.data.userId == request.auth.uid &&
+        matchNotKickedOff(resource.data.matchId);
+    }
+
+    // Users — authenticated users read all (leaderboard)
+    // Users can only update their own profile fields (displayName, photoUrl, email)
+    // Protected scoring/ranking fields can only be written by admin
+    match /users/{userId} {
+      allow read: if request.auth != null;
+      allow write: if isAdmin();
+      allow update: if request.auth != null &&
+        request.auth.uid == userId &&
+        !hasProtectedFields();
+      allow create: if request.auth != null &&
+        request.auth.uid == userId &&
+        !hasProtectedCreateFields();
+    }
+
+    // Notifications — users read/delete their own; admin writes (settle) or reads all
+    match /notifications/{notifId} {
+      allow read, write: if isAdmin();
+      allow read, delete: if request.auth != null &&
+        resource.data.userId == request.auth.uid;
+      allow update: if request.auth != null &&
+        resource.data.userId == request.auth.uid;
+    }
+  }
+}
