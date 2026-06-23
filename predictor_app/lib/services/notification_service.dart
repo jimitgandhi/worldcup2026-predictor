@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_timezone/flutter_timezone.dart';
+import 'package:intl/intl.dart';
 import 'package:timezone/timezone.dart' as tz;
 import 'package:timezone/data/latest_all.dart' as tz;
 import '../models/match.dart';
@@ -95,7 +96,8 @@ class NotificationService {
 
       final tzTime = tz.TZDateTime.from(reminderTime, tz.local);
       final notifId = match.id.hashCode.abs() % 2000000000;
-      const body = '⏱️ Last chance! Lock in your prediction now 🔒';
+      final kickoffStr = DateFormat('h:mm a').format(match.kickoff);
+      final body = '⏱️ Last chance! Kicks off at $kickoffStr — lock in your prediction 🔒';
 
       const details = NotificationDetails(
         android: AndroidNotificationDetails(
