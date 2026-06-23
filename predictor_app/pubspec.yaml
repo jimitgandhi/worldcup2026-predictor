@@ -26,6 +26,7 @@ dependencies:
   shimmer: ^3.0.0
   flutter_animate: ^4.5.2
   google_fonts: ^6.2.1
+  fl_chart: ^0.69.0
   # Notifications
   flutter_local_notifications: ^18.0.1
   timezone: ^0.9.4

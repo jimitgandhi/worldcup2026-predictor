@@ -4,11 +4,13 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../models/match.dart';
 import '../models/prediction.dart';
+import '../models/user_model.dart';
 import '../services/espn_service.dart';
 import '../services/firestore_service.dart';
 import '../services/notification_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/match_card.dart';
+import '../widgets/match_predictions_sheet.dart';
 import '../widgets/shimmer_loading.dart';
 
 class ScheduleScreen extends StatefulWidget {
@@ -28,6 +30,7 @@ class _ScheduleScreenState extends State<ScheduleScreen>
   List<Match> _allMatches = [];
   Map<String, Match> _firestoreOverrides = {};
   Map<String, Prediction> _predictions = {};
+  List<UserModel> _users = [];
   bool _loading = true;
   bool _isAdmin = false;
 
@@ -39,6 +42,7 @@ class _ScheduleScreenState extends State<ScheduleScreen>
   StreamSubscription? _firestoreMatchSub;
   StreamSubscription? _predsSub;
   StreamSubscription? _userSub;
+  StreamSubscription? _leaderboardSub;
   StreamSubscription? _notifTapSub;
 
   @override
@@ -59,6 +63,9 @@ class _ScheduleScreenState extends State<ScheduleScreen>
     });
     _firestoreMatchSub = _firestore.matchesStream().listen((fsMatches) {
       if (mounted) setState(() => _firestoreOverrides = {for (final m in fsMatches) m.id: m});
+    });
+    _leaderboardSub = _firestore.leaderboardStream().listen((users) {
+      if (mounted) setState(() => _users = users);
     });
     _userSub = _firestore.currentUserStream(_user.uid).listen((model) {
       if (mounted && model != null) {
@@ -91,6 +98,7 @@ class _ScheduleScreenState extends State<ScheduleScreen>
     _firestoreMatchSub?.cancel();
     _predsSub?.cancel();
     _userSub?.cancel();
+    _leaderboardSub?.cancel();
     _notifTapSub?.cancel();
     super.dispose();
   }
@@ -153,10 +161,7 @@ class _ScheduleScreenState extends State<ScheduleScreen>
   /// whether the user already has a prediction for each match.
   void _rescheduleNotifications() {
     if (_allMatches.isEmpty || kIsWeb) return;
-    NotificationService.scheduleMatchReminders(
-      _mergedMatches,
-      predictions: _predictions,
-    );
+    NotificationService.scheduleMatchReminders(_mergedMatches);
   }
 
   List<Match> get _mergedMatches {
@@ -187,7 +192,25 @@ class _ScheduleScreenState extends State<ScheduleScreen>
     );
   }
 
-  Widget _buildList(List<Match> matches, {bool canSubmit = false}) {
+  void _showMatchPredictions(BuildContext context, Match match) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: AppColors.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      isScrollControlled: true,
+      builder: (_) => MatchPredictionsSheet(match: match, users: _users),
+    );
+  }
+
+  Widget _buildList(
+    BuildContext context,
+    List<Match> matches, {
+    bool canSubmit = false,
+    bool showPredictions = false,
+    bool tapToShowPredictions = false,
+  }) {
     if (_loading) return const ShimmerList();
     if (matches.isEmpty) {
       return const Center(
@@ -210,13 +233,29 @@ class _ScheduleScreenState extends State<ScheduleScreen>
         itemCount: matches.length,
         itemBuilder: (_, i) {
           final m = matches[i];
-          return MatchCard(
+          Widget card = MatchCard(
             match: m,
             prediction: _predictions[m.id],
             onSubmit: (canSubmit && m.isPredictionOpen)
                 ? (h, a) => _submitPrediction(m, h, a)
                 : null,
           );
+          if (showPredictions && _users.isNotEmpty) {
+            card = Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                card,
+                _LivePredictionsPanel(match: m, users: _users),
+              ],
+            );
+          }
+          if (tapToShowPredictions) {
+            card = GestureDetector(
+              onTap: () => _showMatchPredictions(context, m),
+              child: card,
+            );
+          }
+          return card;
         },
       ),
     );
@@ -268,13 +307,95 @@ class _ScheduleScreenState extends State<ScheduleScreen>
           child: TabBarView(
             controller: _tabController,
             children: [
-              _buildList(upcoming, canSubmit: true),
-              _buildList(live, canSubmit: true),
-              _buildList(past),
+              _buildList(context, upcoming, canSubmit: true),
+              _buildList(context, live, canSubmit: true, showPredictions: true),
+              _buildList(context, past, tapToShowPredictions: true),
             ],
           ),
         ),
       ],
+    );
+  }
+}
+
+// ─── Live predictions panel ──────────────────────────────────────────────────
+// Shown inline below each live match card, ordered by rank.
+
+class _LivePredictionsPanel extends StatefulWidget {
+  final Match match;
+  final List<UserModel> users;
+
+  const _LivePredictionsPanel({required this.match, required this.users});
+
+  @override
+  State<_LivePredictionsPanel> createState() => _LivePredictionsPanelState();
+}
+
+class _LivePredictionsPanelState extends State<_LivePredictionsPanel> {
+  late Future<List<Prediction>> _future;
+
+  @override
+  void initState() {
+    super.initState();
+    _future = FirestoreService().fetchMatchPredictions(widget.match.id);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<List<Prediction>>(
+      future: _future,
+      builder: (_, snap) {
+        if (!snap.hasData || snap.data!.isEmpty) return const SizedBox.shrink();
+        final predMap = {for (final p in snap.data!) p.userId: p};
+        final sorted = [...widget.users]..sort((a, b) {
+          if (a.rank == 0 && b.rank == 0) return a.displayName.compareTo(b.displayName);
+          if (a.rank == 0) return 1;
+          if (b.rank == 0) return -1;
+          return a.rank.compareTo(b.rank);
+        });
+
+        return Container(
+          margin: const EdgeInsets.fromLTRB(12, 0, 12, 5),
+          decoration: BoxDecoration(
+            color: AppColors.cardRaised,
+            borderRadius: const BorderRadius.vertical(bottom: Radius.circular(16)),
+            border: Border.all(color: AppColors.border),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(14, 9, 14, 7),
+                child: Row(
+                  children: [
+                    const Icon(Icons.people_outline, size: 13, color: AppColors.text3),
+                    const SizedBox(width: 6),
+                    const Text(
+                      "Everyone's picks",
+                      style: TextStyle(
+                        fontSize: 11, fontWeight: FontWeight.w700,
+                        color: AppColors.text3, letterSpacing: 0.2),
+                    ),
+                  ],
+                ),
+              ),
+              const Divider(color: AppColors.border, height: 1),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(10, 6, 10, 8),
+                child: Column(
+                  children: sorted.map((user) => PredTile(
+                    user: user,
+                    prediction: predMap[user.id],
+                    compact: true,
+                      liveHome: widget.match.homeScore,
+                      liveAway: widget.match.awayScore,
+                    )).toList(),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 }

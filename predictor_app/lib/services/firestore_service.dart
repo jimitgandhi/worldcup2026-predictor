@@ -388,6 +388,33 @@ class FirestoreService {
     await batch.commit();
   }
 
+  /// Fetch all predictions for a specific match (for match predictions view)
+  Future<List<Prediction>> fetchMatchPredictions(String matchId) async {
+    final snap = await _db
+        .collection('predictions')
+        .where('matchId', isEqualTo: matchId)
+        .get();
+    return snap.docs.map(Prediction.fromFirestore).toList();
+  }
+
+  /// Fetch ALL predictions across all users (for analytics score history)
+  Future<List<Prediction>> fetchAllPredictions() async {
+    final snap = await _db.collection('predictions').get();
+    return snap.docs.map(Prediction.fromFirestore).toList();
+  }
+
+  /// Fetch all finished matches ordered by kickoff (for analytics timeline)
+  Future<List<Match>> fetchFinishedMatches() async {
+    final snap = await _db
+        .collection('matches')
+        .orderBy('kickoff')
+        .get();
+    return snap.docs
+        .map(Match.fromFirestore)
+        .where((m) => m.status == MatchStatus.finished)
+        .toList();
+  }
+
   /// Backfill kickoffTime for all predictions that don't have it
   Future<int> backfillKickoffTimes() async {
     // Get all predictions without kickoffTime

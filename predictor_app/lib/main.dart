@@ -34,10 +34,9 @@ void main() async {
   String? initError;
   try {
     await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
-    // Notifications only on mobile (not web)
+    // Notifications only on mobile (not web) — permissions requested in HomeShell with context
     if (!kIsWeb) {
       await NotificationService.init();
-      await NotificationService.requestPermissions();
     }
   } catch (e, st) {
     initError = '$e\n\n$st';

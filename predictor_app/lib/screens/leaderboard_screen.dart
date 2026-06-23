@@ -7,9 +7,19 @@ import '../services/firestore_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/match_widgets.dart';
 import '../widgets/shimmer_loading.dart';
+import 'analytics_screen.dart';
 
 class LeaderboardScreen extends StatelessWidget {
   const LeaderboardScreen({super.key});
+
+  void _showAnalytics(BuildContext context, List<UserModel> users) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (_) => AnalyticsScreen(users: users),
+    );
+  }
 
   void _showUserPredictions(BuildContext context, UserModel user) {
     final firestore = FirestoreService();
@@ -206,34 +216,59 @@ class LeaderboardScreen extends StatelessWidget {
                 ),
                 child: Row(
                   children: [
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            const Text('Leaderboard',
-                              style: TextStyle(fontSize: 22, fontWeight: FontWeight.w900, letterSpacing: -0.5)),
-                            const SizedBox(width: 8),
-                            GestureDetector(
-                              onTap: () => _showPointsInfo(context),
-                              child: Container(
-                                width: 22, height: 22,
-                                decoration: BoxDecoration(
-                                  color: AppColors.cardRaised,
-                                  shape: BoxShape.circle,
-                                  border: Border.all(color: AppColors.border),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Text('Leaderboard',
+                                style: TextStyle(fontSize: 22, fontWeight: FontWeight.w900, letterSpacing: -0.5)),
+                              const SizedBox(width: 8),
+                              GestureDetector(
+                                onTap: () => _showPointsInfo(context),
+                                child: Container(
+                                  width: 22, height: 22,
+                                  decoration: BoxDecoration(
+                                    color: AppColors.cardRaised,
+                                    shape: BoxShape.circle,
+                                    border: Border.all(color: AppColors.border),
+                                  ),
+                                  child: const Icon(Icons.question_mark_rounded,
+                                    size: 12, color: AppColors.text3),
                                 ),
-                                child: const Icon(Icons.question_mark_rounded,
-                                  size: 12, color: AppColors.text3),
                               ),
-                            ),
-                          ],
-                        ),
-                        Text('${users.length} players · Updated live',
-                          style: const TextStyle(fontSize: 12, color: AppColors.text2)),
-                      ],
+                              const SizedBox(width: 8),
+                              GestureDetector(
+                                onTap: () => _showAnalytics(context, users),
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                  decoration: BoxDecoration(
+                                    color: AppColors.cardRaised,
+                                    borderRadius: BorderRadius.circular(100),
+                                    border: Border.all(color: AppColors.border),
+                                  ),
+                                  child: const Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Icon(Icons.show_chart_rounded, size: 12, color: AppColors.text2),
+                                      SizedBox(width: 4),
+                                      Text('Analytics',
+                                        style: TextStyle(
+                                          fontSize: 10, fontWeight: FontWeight.w700,
+                                          color: AppColors.text2, letterSpacing: 0.2)),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                          Text('${users.length} players · Updated live',
+                            style: const TextStyle(fontSize: 12, color: AppColors.text2)),
+                        ],
+                      ),
                     ),
-                    const Spacer(),
                     StreamBuilder<UserModel?>(
                       stream: firestore.currentUserStream(me.uid),
                       builder: (_, snap) {
@@ -347,9 +382,7 @@ class _LeaderboardRow extends StatelessWidget {
     final borderColor = isMe
         ? AppColors.gold.withOpacity(0.3)
         : AppColors.border;
-    final bgColor = isMedal
-        ? _medalBg[medalIdx]
-        : (isMe ? const Color(0x0DC9A84C) : AppColors.card);
+    final bgColor = isMe ? const Color(0x0DC9A84C) : AppColors.card;
 
     return GestureDetector(
       onTap: onTap,
@@ -392,7 +425,6 @@ class _LeaderboardRow extends StatelessWidget {
                     Text(user.displayName,
                       style: TextStyle(
                         fontSize: 13, fontWeight: FontWeight.w700,
-                        color: isMedal ? Colors.white : null,
                       )),
                     if (isMe) ...[
                       const SizedBox(width: 6),

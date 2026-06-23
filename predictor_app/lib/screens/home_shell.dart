@@ -1,9 +1,11 @@
 import 'dart:async';
+import 'dart:io' show Platform;
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import '../screens/schedule_screen.dart';
 import '../screens/leaderboard_screen.dart';
 import '../screens/profile_screen.dart';
@@ -32,7 +34,6 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
     ProfileScreen(),
   ];
 
-  static const _titles = ['Schedule', 'Leaderboard', 'Profile'];
 
   @override
   void initState() {
@@ -48,6 +49,7 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
       final launch = NotificationService.consumeLaunchPayload();
       if (launch != null && mounted) _navigateFromLaunch(launch);
       _listenPostMatchNotifications();
+      if (!kIsWeb && Platform.isAndroid) _checkNotificationPermissions();
     });
   }
 
@@ -115,6 +117,63 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
     final doc = await FirebaseFirestore.instance.collection('users').doc(uid).get();
     if (mounted && doc.exists && doc.data()?['isAdmin'] == true) {
       setState(() => _isAdmin = true);
+    }
+  }
+
+  Future<void> _checkNotificationPermissions() async {
+    if (!mounted) return;
+    final android = FlutterLocalNotificationsPlugin()
+        .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>();
+    if (android == null) return;
+
+    // Step 1: notification permission (Android 13+ POST_NOTIFICATIONS)
+    final notifGranted = await android.areNotificationsEnabled() ?? false;
+    if (!notifGranted && mounted) {
+      final proceed = await showDialog<bool>(
+        context: context,
+        barrierDismissible: false,
+        builder: (ctx) => AlertDialog(
+          backgroundColor: AppColors.cardRaised,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: const Row(
+            children: [
+              Text('⚽', style: TextStyle(fontSize: 20)),
+              SizedBox(width: 8),
+              Text('Enable Notifications',
+                  style: TextStyle(color: AppColors.text, fontSize: 16, fontWeight: FontWeight.w700)),
+            ],
+          ),
+          content: const Text(
+            'Get a reminder 10 minutes before each match kicks off — so you never miss submitting your prediction.',
+            style: TextStyle(color: AppColors.text2, fontSize: 14, height: 1.5),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Not now', style: TextStyle(color: AppColors.text3)),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.gold,
+                foregroundColor: Colors.black,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              ),
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('Enable', style: TextStyle(fontWeight: FontWeight.w700)),
+            ),
+          ],
+        ),
+      );
+      if (proceed == true) await android.requestNotificationsPermission();
+    }
+
+    // Step 2: exact alarm permission — always check separately.
+    // On Android 13+ USE_EXACT_ALARM (manifest) grants this automatically → canSchedule = true → no-op.
+    // On Android 12 SCHEDULE_EXACT_ALARM requires user to grant in Settings — we silently open it.
+    // Without exact alarms the system may delay notifications by hours in Doze mode.
+    final canExact = await android.canScheduleExactNotifications() ?? true;
+    if (!canExact) {
+      await android.requestExactAlarmsPermission();
     }
   }
 

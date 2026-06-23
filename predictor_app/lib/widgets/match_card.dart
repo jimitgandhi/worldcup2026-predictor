@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../models/match.dart';
 import '../models/prediction.dart';
+import '../services/scoring_service.dart';
 import '../theme/app_theme.dart';
 import 'match_widgets.dart';
 
@@ -295,9 +296,18 @@ class _Footer extends StatelessWidget {
           // Right: result chip, pending chip, submit btn, or +0 pts
           if (isSettled)
             ResultChip(result: prediction!.result, points: prediction!.pointsEarned)
-          else if (hasPrediction && isFinishedOrLive)
-            // Match finished but not settled yet — pending
-            ResultChip(result: PredictionResult.pending, points: 0)
+          else if (hasPrediction && isFinishedOrLive) ...[
+            // Live: show what pts they'd get if current score is final
+            if (match.status == MatchStatus.live &&
+                match.homeScore != null && match.awayScore != null) ...[
+              _LivePtsPreview(
+                prediction: prediction!,
+                liveHome: match.homeScore!,
+                liveAway: match.awayScore!,
+              ),
+            ] else
+              ResultChip(result: PredictionResult.pending, points: 0),
+          ]
           else if (hasPrediction && canPredict)
             _SubmitBtn(saved: saved, submitting: submitting, onSubmit: onSubmit)
           else if (!hasPrediction && canPredict)
@@ -422,6 +432,62 @@ class _SubmitBtn extends StatelessWidget {
                 fontSize: 12, fontWeight: FontWeight.w800,
               ),
             ),
+      ),
+    );
+  }
+}
+
+/// Shows a live pts preview — what the user would earn if the current live score is final.
+class _LivePtsPreview extends StatelessWidget {
+  final Prediction prediction;
+  final int liveHome;
+  final int liveAway;
+
+  const _LivePtsPreview({
+    required this.prediction,
+    required this.liveHome,
+    required this.liveAway,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final scored = ScoringService.calculate(
+      predHome: prediction.homeScore,
+      predAway: prediction.awayScore,
+      actualHome: liveHome,
+      actualAway: liveAway,
+    );
+    final pts = scored.points;
+    final color = pts >= 50
+        ? AppColors.green
+        : pts >= 20
+            ? AppColors.gold
+            : pts >= 10
+                ? AppColors.orange
+                : AppColors.text3;
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(100),
+        border: Border.all(color: color.withOpacity(0.3)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 6, height: 6,
+            decoration: BoxDecoration(color: AppColors.red, shape: BoxShape.circle),
+          ),
+          const SizedBox(width: 5),
+          Text(
+            '+$pts pts',
+            style: TextStyle(
+              fontSize: 11, fontWeight: FontWeight.w700, color: color,
+            ),
+          ),
+        ],
       ),
     );
   }

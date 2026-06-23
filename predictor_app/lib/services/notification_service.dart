@@ -5,7 +5,6 @@ import 'package:flutter_timezone/flutter_timezone.dart';
 import 'package:timezone/timezone.dart' as tz;
 import 'package:timezone/data/latest_all.dart' as tz;
 import '../models/match.dart';
-import '../models/prediction.dart';
 
 class NotificationService {
   static final _plugin = FlutterLocalNotificationsPlugin();
@@ -76,9 +75,8 @@ class NotificationService {
   }
 
   static Future<void> scheduleMatchReminders(
-    List<Match> matches, {
-    Map<String, Prediction>? predictions,
-  }) async {
+    List<Match> matches,
+  ) async {
     // Only cancel the specific reminder IDs we manage — never touch post-match
     // or other notifications that may have just fired
     final reminderIds = matches
@@ -97,10 +95,7 @@ class NotificationService {
 
       final tzTime = tz.TZDateTime.from(reminderTime, tz.local);
       final notifId = match.id.hashCode.abs() % 2000000000;
-      final hasPrediction = predictions?.containsKey(match.id) ?? false;
-      final body = hasPrediction
-          ? '⏱️ Last chance! Your pick locks in 10 minutes 🔒'
-          : 'Kicks off in 10 minutes! Lock in your prediction now 🔒';
+      const body = '⏱️ Last chance! Lock in your prediction now 🔒';
 
       const details = NotificationDetails(
         android: AndroidNotificationDetails(
