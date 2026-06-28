@@ -1,7 +1,7 @@
 name: predictor_app
 description: "FIFA World Cup 2026 Prediction Game"
 publish_to: 'none'
-version: 1.0.0+1
+version: 1.0.5+6
 
 environment:
   sdk: ^3.12.2

@@ -106,9 +106,16 @@ class _MatchCardState extends State<MatchCard> {
       child: Column(
         children: [
           _Header(match: match),
-          _Body(match: match, showScore: showScore,
+          _Body(
+            match: match,
+            showScore: showScore,
             predictHomeVal: canPredict ? _homeVal : null,
-            predictAwayVal: canPredict ? _awayVal : null),
+            predictAwayVal: canPredict ? _awayVal : null,
+            penHomeVal: canPredict ? _penHomeVal : null,
+            penAwayVal: canPredict ? _penAwayVal : null,
+            onStep: canPredict ? _step : null,
+            onPenStep: canPredict ? _stepPen : null,
+          ),
           if (hasPrediction || canPredict || match.status != MatchStatus.upcoming)
             _Footer(
               match: match,
@@ -120,8 +127,6 @@ class _MatchCardState extends State<MatchCard> {
               penAwayVal: _penAwayVal,
               saved: _saved,
               submitting: _submitting,
-              onStep: _step,
-              onPenStep: _stepPen,
               onSubmit: () async {
                 setState(() => _submitting = true);
                 try {
@@ -196,25 +201,39 @@ class _Body extends StatelessWidget {
   final bool showScore;
   final int? predictHomeVal;
   final int? predictAwayVal;
-  const _Body({required this.match, required this.showScore, this.predictHomeVal, this.predictAwayVal});
+  final int? penHomeVal;
+  final int? penAwayVal;
+  final Function(bool isHome, int delta)? onStep;
+  final Function(bool isHome, int delta)? onPenStep;
+  const _Body({
+    required this.match,
+    required this.showScore,
+    this.predictHomeVal,
+    this.predictAwayVal,
+    this.penHomeVal,
+    this.penAwayVal,
+    this.onStep,
+    this.onPenStep,
+  });
 
   Widget _flagWithGlow(String logoUrl, Color? glow) {
-    if (glow == null) return FlagImage(logoUrl: logoUrl);
+    if (glow == null) return FlagImage(logoUrl: logoUrl, width: 52, height: 36);
     return Container(
       decoration: BoxDecoration(
         shape: BoxShape.circle,
         boxShadow: [BoxShadow(color: glow.withOpacity(0.5), blurRadius: 18, spreadRadius: 2)],
       ),
-      child: FlagImage(logoUrl: logoUrl),
+      child: FlagImage(logoUrl: logoUrl, width: 52, height: 36),
     );
   }
 
   @override
   Widget build(BuildContext context) {
+    final canPredict = onStep != null;
+    final showPenInput = canPredict && match.isKnockout && onPenStep != null;
     Color? homeGlow, awayGlow;
 
     if (predictHomeVal != null && predictAwayVal != null) {
-      // Prediction input: glow follows predicted score
       if (predictHomeVal! > predictAwayVal!) {
         homeGlow = AppColors.green;
       } else if (predictAwayVal! > predictHomeVal!) {
@@ -223,12 +242,10 @@ class _Body extends StatelessWidget {
         homeGlow = awayGlow = AppColors.gold;
       }
     } else if (showScore && match.homeScore != null && match.awayScore != null) {
-      // Live / finished: glow follows actual result
       final h = match.homeScore!;
       final a = match.awayScore!;
       if (match.wentToPenalties &&
           match.penaltyHomeScore != null && match.penaltyAwayScore != null) {
-        // Penalty decider — winner is the team with more pen goals
         if (match.penaltyHomeScore! > match.penaltyAwayScore!) {
           homeGlow = AppColors.green;
         } else {
@@ -239,15 +256,17 @@ class _Body extends StatelessWidget {
       } else if (a > h) {
         awayGlow = AppColors.green;
       } else {
-        // Draw — amber on both (live or finished)
         homeGlow = awayGlow = AppColors.gold;
       }
     }
+
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 16),
+      padding: const EdgeInsets.fromLTRB(14, 16, 14, 14),
       child: Column(
         children: [
+          // Main score row: [home col] [center] [away col]
           Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
             children: [
               // Home team
               Expanded(
@@ -256,15 +275,22 @@ class _Body extends StatelessWidget {
                     _flagWithGlow(match.homeTeamLogo, homeGlow),
                     const SizedBox(height: 8),
                     Text(match.homeTeam,
-                      style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
+                      style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
                       textAlign: TextAlign.center,
                     ),
+                    if (canPredict) ...[
+                      const SizedBox(height: 10),
+                      _SingleStepper(
+                        value: predictHomeVal ?? 0,
+                        onStep: (d) => onStep!(true, d),
+                      ),
+                    ],
                   ],
                 ),
               ),
-              // Score or VS
+              // Center: VS or score dash
               SizedBox(
-                width: 80,
+                width: 56,
                 child: Column(
                   children: [
                     if (showScore) ...[
@@ -277,13 +303,13 @@ class _Body extends StatelessWidget {
                               ? AppColors.gold
                               : AppColors.text,
                         ),
+                        textAlign: TextAlign.center,
                       ),
                       if (match.status == MatchStatus.live && match.displayClock != null)
                         Text(match.displayClock!,
                           style: const TextStyle(
                             fontSize: 11, color: AppColors.red, fontWeight: FontWeight.w600,
                           )),
-                      // Penalty shootout score
                       if (match.wentToPenalties)
                         Padding(
                           padding: const EdgeInsets.only(top: 4),
@@ -306,9 +332,19 @@ class _Body extends StatelessWidget {
                             ),
                           ),
                         ),
-                      if (match.isKnockout && !match.wentToPenalties && match.status == MatchStatus.finished)
-                        const SizedBox.shrink(),
-                    ] else
+                    ] else if (canPredict)
+                      // Dash aligned to stepper row
+                      Column(
+                        children: [
+                          // Spacer to push dash down to stepper level (flag 36 + gap 8 + name ~34 + gap 10 = ~88)
+                          const SizedBox(height: 88),
+                          const Text('–',
+                            style: TextStyle(
+                              fontSize: 16, fontWeight: FontWeight.w700, color: AppColors.text3,
+                            )),
+                        ],
+                      )
+                    else
                       const Text('VS',
                         style: TextStyle(
                           fontSize: 14, fontWeight: FontWeight.w700,
@@ -324,14 +360,74 @@ class _Body extends StatelessWidget {
                     _flagWithGlow(match.awayTeamLogo, awayGlow),
                     const SizedBox(height: 8),
                     Text(match.awayTeam,
-                      style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
+                      style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
                       textAlign: TextAlign.center,
                     ),
+                    if (canPredict) ...[
+                      const SizedBox(height: 10),
+                      _SingleStepper(
+                        value: predictAwayVal ?? 0,
+                        onStep: (d) => onStep!(false, d),
+                      ),
+                    ],
                   ],
                 ),
               ),
             ],
           ),
+          // Penalty section directly below, no flags
+          if (showPenInput)
+            Padding(
+              padding: const EdgeInsets.only(top: 12),
+              child: Container(
+                padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
+                decoration: BoxDecoration(
+                  color: const Color(0x0F7C3AED),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: const Color(0x337C3AED)),
+                ),
+                child: Column(
+                  children: [
+                    const Text('⚡ PENALTY SHOOTOUT',
+                      style: TextStyle(fontSize: 8, fontWeight: FontWeight.w800,
+                        letterSpacing: 0.8, color: Color(0xFFA78BFA))),
+                    const SizedBox(height: 10),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Center(
+                            child: _SingleStepper(
+                              value: penHomeVal ?? 0,
+                              onStep: (d) => onPenStep!(true, d),
+                              accentColor: const Color(0xFF7C3AED),
+                              small: true,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(
+                          width: 56,
+                          child: Center(
+                            child: Text('–',
+                              style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700,
+                                color: Color(0xFF7C6BAA))),
+                          ),
+                        ),
+                        Expanded(
+                          child: Center(
+                            child: _SingleStepper(
+                              value: penAwayVal ?? 0,
+                              onStep: (d) => onPenStep!(false, d),
+                              accentColor: const Color(0xFF7C3AED),
+                              small: true,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
         ],
       ),
     );
@@ -348,8 +444,6 @@ class _Footer extends StatelessWidget {
   final int penAwayVal;
   final bool saved;
   final bool submitting;
-  final Function(bool isHome, int delta) onStep;
-  final Function(bool isHome, int delta) onPenStep;
   final VoidCallback onSubmit;
 
   const _Footer({
@@ -362,8 +456,6 @@ class _Footer extends StatelessWidget {
     required this.penAwayVal,
     required this.saved,
     required this.submitting,
-    required this.onStep,
-    required this.onPenStep,
     required this.onSubmit,
   });
 
@@ -374,84 +466,13 @@ class _Footer extends StatelessWidget {
     final isFinishedOrLive = match.status != MatchStatus.upcoming;
     final totalPoints = (prediction?.pointsEarned ?? 0) + (prediction?.penPointsEarned ?? 0);
     final hasPenBonus = prediction?.penResult != null && prediction!.penResult != PredictionResult.pending;
-    final showPenInput = canPredict && match.isKnockout;
 
-    // Knockout + can predict: two-section layout with tall submit button
-    if (showPenInput) {
-      return Container(
-        decoration: const BoxDecoration(
-          border: Border(top: BorderSide(color: AppColors.border)),
-        ),
-        child: IntrinsicHeight(
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              // Left: stacked main + pen sections
-              Expanded(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    // Main score section
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          const Text('SCORE',
-                            style: TextStyle(fontSize: 9, color: AppColors.text3,
-                              fontWeight: FontWeight.w700, letterSpacing: 0.8)),
-                          _ScoreStepper(homeVal: homeVal, awayVal: awayVal, onStep: onStep),
-                        ],
-                      ),
-                    ),
-                    Container(height: 1, color: AppColors.border),
-                    // Pen section — purple tinted
-                    Container(
-                      color: const Color(0x0F7C3AED),
-                      padding: const EdgeInsets.fromLTRB(12, 9, 12, 9),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                decoration: BoxDecoration(
-                                  color: const Color(0x207C3AED),
-                                  borderRadius: BorderRadius.circular(5),
-                                ),
-                                child: const Text('⚡ PENS',
-                                  style: TextStyle(fontSize: 8, fontWeight: FontWeight.w800,
-                                    letterSpacing: 0.6, color: Color(0xFFA78BFA))),
-                              ),
-                              _ScoreStepper(
-                                homeVal: penHomeVal, awayVal: penAwayVal, onStep: onPenStep,
-                                accentColor: const Color(0xFF7C3AED),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 4),
-                          const Text('Same scoring rules apply',
-                            style: TextStyle(fontSize: 9, color: Color(0x80A78BFA))),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              // Vertical divider
-              Container(width: 1, color: AppColors.border),
-              // Tall submit button (rounded bottom-right to match card)
-              _SubmitBtnTall(saved: saved, submitting: submitting, onSubmit: onSubmit),
-            ],
-          ),
-        ),
-      );
+    // New predict layout: steppers are in _Body; footer only shows the CTA
+    if (canPredict) {
+      return _SubmitBarFull(saved: saved, submitting: submitting, onSubmit: onSubmit);
     }
 
-    // Standard layout
+    // Non-predict layout (result / settled / no prediction) — unchanged
     return Container(
       padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
       decoration: const BoxDecoration(
@@ -460,9 +481,7 @@ class _Footer extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          if (canPredict)
-            _ScoreStepper(homeVal: homeVal, awayVal: awayVal, onStep: onStep)
-          else if (hasPrediction)
+          if (hasPrediction)
             Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -484,7 +503,7 @@ class _Footer extends StatelessWidget {
                         const Icon(Icons.sports_soccer, size: 10, color: Color(0xFFA78BFA)),
                         const SizedBox(width: 3),
                         Text(
-                          'Pens: ${prediction!.penHome} – ${prediction!.penAway}',
+                          'Penalties: ${prediction!.penHome} – ${prediction!.penAway}',
                           style: const TextStyle(fontSize: 10, color: Color(0xFFA78BFA), fontWeight: FontWeight.w600),
                         ),
                       ],
@@ -541,8 +560,6 @@ class _Footer extends StatelessWidget {
             else
               ResultChip(result: PredictionResult.pending, points: 0),
           ]
-          else if (canPredict)
-            _SubmitBtn(saved: saved, submitting: submitting, onSubmit: onSubmit)
           else if (!hasPrediction && isFinishedOrLive)
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 5),
@@ -554,6 +571,98 @@ class _Footer extends StatelessWidget {
               child: const Text('+0 pts',
                 style: TextStyle(color: AppColors.text3, fontSize: 11, fontWeight: FontWeight.w700)),
             ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Full-width gold submit bar — replaces the old side tall button and small submit btn.
+class _SubmitBarFull extends StatelessWidget {
+  final bool saved;
+  final bool submitting;
+  final VoidCallback onSubmit;
+  const _SubmitBarFull({required this.saved, required this.submitting, required this.onSubmit});
+
+  @override
+  Widget build(BuildContext context) {
+    final disabled = saved || submitting;
+    return GestureDetector(
+      onTap: disabled ? null : onSubmit,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 250),
+        margin: const EdgeInsets.fromLTRB(14, 6, 14, 14),
+        height: 48,
+        decoration: BoxDecoration(
+          gradient: (!saved && !submitting)
+              ? const LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [Color(0xFFF5C84B), Color(0xFFC9A84C)],
+                )
+              : null,
+          color: saved ? AppColors.greenDim : (submitting ? AppColors.cardRaised : null),
+          borderRadius: BorderRadius.circular(12),
+          border: saved ? Border.all(color: AppColors.green.withOpacity(0.4)) : null,
+          boxShadow: (!saved && !submitting)
+              ? [BoxShadow(color: AppColors.gold.withOpacity(0.25), blurRadius: 12, offset: const Offset(0, 4))]
+              : null,
+        ),
+        alignment: Alignment.center,
+        child: submitting
+            ? const SizedBox(width: 16, height: 16,
+                child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.text2))
+            : Text(
+                saved ? '✓ Prediction saved' : 'Submit prediction',
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w700,
+                  color: saved ? AppColors.green : const Color(0xFF1A1206),
+                ),
+              ),
+      ),
+    );
+  }
+}
+
+class _SingleStepper extends StatelessWidget {
+  final int value;
+  final Function(int delta) onStep;
+  final Color? accentColor;
+  final bool small;
+
+  const _SingleStepper({
+    required this.value,
+    required this.onStep,
+    this.accentColor,
+    this.small = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        color: accentColor != null ? accentColor!.withOpacity(0.08) : AppColors.cardRaised,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(
+          color: accentColor != null ? accentColor!.withOpacity(0.3) : AppColors.border,
+        ),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _StepBtn(label: '−', onTap: () => onStep(-1)),
+          SizedBox(
+            width: small ? 24 : 28,
+            child: Text('$value',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: small ? 14 : 16,
+                fontWeight: FontWeight.w800,
+                color: AppColors.text,
+              )),
+          ),
+          _StepBtn(label: '+', onTap: () => onStep(1)),
         ],
       ),
     );
@@ -621,11 +730,11 @@ class _StepBtn extends StatelessWidget {
     return GestureDetector(
       onTap: onTap,
       child: Container(
-        width: 30, height: 36,
+        width: 44, height: 44,
         alignment: Alignment.center,
         child: Text(label,
           style: const TextStyle(
-            fontSize: 18, fontWeight: FontWeight.w500, color: AppColors.text2,
+            fontSize: 20, fontWeight: FontWeight.w500, color: AppColors.text2,
           )),
       ),
     );
@@ -647,11 +756,11 @@ class _SubmitBtn extends StatelessWidget {
         duration: const Duration(milliseconds: 250),
         padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 9),
         decoration: BoxDecoration(
-          color: saved ? AppColors.greenDim : (submitting ? AppColors.cardRaised : const Color(0x44C9A84C)),
+          color: saved ? AppColors.greenDim : (submitting ? AppColors.cardRaised : const Color(0xFF2C1F06)),
           borderRadius: BorderRadius.circular(10),
           border: saved
               ? Border.all(color: AppColors.green.withOpacity(0.25))
-              : submitting ? null : Border.all(color: const Color(0x88C9A84C)),
+              : submitting ? null : Border.all(color: AppColors.gold),
         ),
         child: submitting
           ? const SizedBox(
@@ -689,13 +798,13 @@ class _SubmitBtnTall extends StatelessWidget {
               ? AppColors.greenDim
               : submitting
                   ? AppColors.cardRaised
-                : const Color(0x44C9A84C), // dim gold tint — subtle, matches dark theme
+                : const Color(0xFF2C1F06),
         borderRadius: const BorderRadius.only(bottomRight: Radius.circular(15)),
         border: saved
             ? Border.all(color: AppColors.green.withOpacity(0.2))
             : submitting
                 ? null
-                : Border.all(color: const Color(0x88C9A84C)),
+                : Border.all(color: AppColors.gold),
       ),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,

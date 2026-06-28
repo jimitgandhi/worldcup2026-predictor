@@ -152,79 +152,81 @@ class LeaderboardScreen extends StatelessWidget {
     );
   }
 
-  void _showPointsInfo(BuildContext context) {    showDialog(
+  void _showPointsInfo(BuildContext context) {
+    showDialog(
       context: context,
       builder: (_) => Dialog(
         backgroundColor: AppColors.surface,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         child: SingleChildScrollView(
-          child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
+          child: SizedBox(
+            width: double.maxFinite,
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text('⚽', style: TextStyle(fontSize: 22)),
-                  const SizedBox(width: 10),
-                  const Text('How Points Work',
-                    style: TextStyle(
-                      fontSize: 17, fontWeight: FontWeight.w900, letterSpacing: -0.3,
-                    )),
-                  const Spacer(),
-                  GestureDetector(
-                    onTap: () => Navigator.pop(context),
-                    child: const Icon(Icons.close, size: 20, color: AppColors.text3),
+                  Row(
+                    children: [
+                      const Text('⚽', style: TextStyle(fontSize: 22)),
+                      const SizedBox(width: 10),
+                      const Text('How Points Work',
+                        style: TextStyle(
+                          fontSize: 17, fontWeight: FontWeight.w900, letterSpacing: -0.3,
+                        )),
+                      const Spacer(),
+                      GestureDetector(
+                        onTap: () => Navigator.pop(context),
+                        child: const Icon(Icons.close, size: 20, color: AppColors.text3),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 20),
+                  _PointRow('✦ Exact Score', AppColors.green,
+                    'Both scores exactly right.'),
+                  const Divider(color: AppColors.border, height: 20),
+                  _PointRow('✓~ Almost Correct', AppColors.gold,
+                    'Right result + one score matches.'),
+                  const Divider(color: AppColors.border, height: 20),
+                  _PointRow('✓ Correct Result', AppColors.gold,
+                    'Right result, neither score matches.'),
+                  const Divider(color: AppColors.border, height: 20),
+                  _PointRow('~ One Score', AppColors.orange,
+                    'One score matches, wrong result.'),
+                  const Divider(color: AppColors.border, height: 20),
+                  _PointRow('✗ Wrong', AppColors.red,
+                    'Neither score correct, wrong result.'),
+                  const SizedBox(height: 12),
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: AppColors.goldDim,
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: AppColors.gold.withOpacity(0.2)),
+                    ),
+                    child: const Text(
+                      '⚡ Almost Correct stacks on Correct Result.\n🔒 Predictions lock at kickoff.',
+                      style: TextStyle(fontSize: 12, color: AppColors.gold, height: 1.5),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: const Color(0x1A7C3AED),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: const Color(0x337C3AED)),
+                    ),
+                    child: const Text(
+                      '🎯 Knockout Penalty Bonus\n\nPredict the penalty shootout too. Same scoring rules, stacks on top — max 100 pts per match!',
+                      style: TextStyle(fontSize: 12, color: Color(0xFFA78BFA), height: 1.5),
+                    ),
                   ),
                 ],
               ),
-              const SizedBox(height: 20),
-              _PointRow('✦ Exact Score', AppColors.green,
-                'Both scores exactly right.'),
-              const Divider(color: AppColors.border, height: 20),
-              _PointRow('✓~ Almost Correct', AppColors.gold,
-                'Right result and one score digit matches.'),
-              const Divider(color: AppColors.border, height: 20),
-              _PointRow('✓ Correct Result', AppColors.gold,
-                'Right result, but neither score matches.'),
-              const Divider(color: AppColors.border, height: 20),
-              _PointRow('~ One Score', AppColors.orange,
-                'One score digit matches, wrong result.'),
-              const Divider(color: AppColors.border, height: 20),
-              _PointRow('✗ Wrong', AppColors.red,
-                'Neither score correct, wrong result.'),
-              const SizedBox(height: 12),
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: AppColors.goldDim,
-                  borderRadius: BorderRadius.circular(10),
-                  border: Border.all(color: AppColors.gold.withOpacity(0.2)),
-                ),
-                child: const Text(
-                  '⚡ Correct result + one score = stacked bonus.\n🔒 Predictions lock the moment a match kicks off.',
-                  style: TextStyle(fontSize: 12, color: AppColors.gold, height: 1.5),
-                ),
-              ),
-              const SizedBox(height: 12),
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: const Color(0x1A7C3AED),
-                  borderRadius: BorderRadius.circular(10),
-                  border: Border.all(color: const Color(0x337C3AED)),
-                ),
-                child: const Text(
-                  '🎯 Knockout Penalty Bonus\n\nFor knockout matches, predict the penalty shootout score too. Same scoring rules, stacks on top - max 100 pts per match!',
-                  style: TextStyle(fontSize: 12, color: Color(0xFFA78BFA), height: 1.5),
-                ),
-              ),
-            ],
+            ),
           ),
-        ),
         ),
       ),
     );
