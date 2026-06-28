@@ -167,8 +167,9 @@ class _StatusBadgeState extends State<StatusBadge>
 class ResultChip extends StatelessWidget {
   final PredictionResult result;
   final int? points;
+  final bool hasPenBonus;
 
-  const ResultChip({super.key, required this.result, this.points});
+  const ResultChip({super.key, required this.result, this.points, this.hasPenBonus = false});
 
   @override
   Widget build(BuildContext context) {

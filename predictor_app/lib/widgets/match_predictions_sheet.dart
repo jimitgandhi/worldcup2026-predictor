@@ -99,6 +99,30 @@ class MatchPredictionsSheet extends StatelessWidget {
             ),
           ),
           const Divider(color: AppColors.border, height: 1),
+          // Penalty score display if match went to penalties
+          if (match.wentToPenalties)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                decoration: BoxDecoration(
+                  color: const Color(0x1A7C3AED),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: const Color(0x337C3AED)),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.sports_soccer, size: 12, color: Color(0xFFA78BFA)),
+                    const SizedBox(width: 6),
+                    Text(
+                      'Penalty shootout: ${match.penaltyHomeScore}–${match.penaltyAwayScore}',
+                      style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Color(0xFFA78BFA)),
+                    ),
+                  ],
+                ),
+              ),
+            ),
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 10, 16, 6),
             child: Row(
@@ -154,6 +178,8 @@ class PredTile extends StatelessWidget {
   final bool compact;
   final int? liveHome;
   final int? liveAway;
+  final int? livePenHome;
+  final int? livePenAway;
 
   const PredTile({
     super.key,
@@ -162,11 +188,15 @@ class PredTile extends StatelessWidget {
     this.compact = false,
     this.liveHome,
     this.liveAway,
+    this.livePenHome,
+    this.livePenAway,
   });
 
   @override
   Widget build(BuildContext context) {
-    final borderColor = AppColors.border;
+    final isSettled = prediction != null && prediction!.result != PredictionResult.pending;
+    final totalPoints = (prediction?.pointsEarned ?? 0) + (prediction?.penPointsEarned ?? 0);
+    final hasPenBonus = prediction?.penResult != null;
 
     return Container(
       margin: EdgeInsets.only(bottom: compact ? 4 : 8),
@@ -177,7 +207,7 @@ class PredTile extends StatelessWidget {
       decoration: BoxDecoration(
         color: AppColors.card,
         borderRadius: BorderRadius.circular(compact ? 10 : 12),
-        border: Border.all(color: borderColor),
+        border: Border.all(color: AppColors.border),
       ),
       child: Row(
         children: [
@@ -195,15 +225,26 @@ class PredTile extends StatelessWidget {
           // Avatar
           UserAvatar(user: user, size: compact ? 24 : 28),
           const SizedBox(width: 8),
-          // Name
+          // Name + penalty pick
           Expanded(
-            child: Text(
-              user.displayName.split(' ').first,
-              style: TextStyle(
-                fontSize: compact ? 12 : 13,
-                fontWeight: FontWeight.w700,
-              ),
-              overflow: TextOverflow.ellipsis,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  user.displayName.split(' ').first,
+                  style: TextStyle(
+                    fontSize: compact ? 12 : 13,
+                    fontWeight: FontWeight.w700,
+                  ),
+                  overflow: TextOverflow.ellipsis,
+                ),
+                if (prediction?.penHome != null && prediction?.penAway != null)
+                  Text(
+                    '🎯 Pens: ${prediction!.penHome}–${prediction!.penAway}',
+                    style: const TextStyle(fontSize: 9, color: Color(0xFFA78BFA), fontWeight: FontWeight.w600),
+                  ),
+              ],
             ),
           ),
           // Pick + result chip
@@ -214,16 +255,21 @@ class PredTile extends StatelessWidget {
                 fontSize: 12, fontWeight: FontWeight.w700, color: AppColors.text2),
             ),
             const SizedBox(width: 8),
-            // If live score provided and prediction pending, show live pts
             if (liveHome != null && liveAway != null &&
                 prediction!.result == PredictionResult.pending) ...[
               _LivePtsBadge(
                 prediction: prediction!,
                 liveHome: liveHome!,
                 liveAway: liveAway!,
+                livePenHome: livePenHome,
+                livePenAway: livePenAway,
               ),
             ] else
-              ResultChip(result: prediction!.result, points: prediction!.pointsEarned),
+              ResultChip(
+                result: prediction!.result,
+                points: isSettled ? totalPoints : prediction!.pointsEarned,
+                hasPenBonus: hasPenBonus,
+              ),
           ] else
             const Text(
               'No pick',
@@ -278,11 +324,15 @@ class _LivePtsBadge extends StatelessWidget {
   final Prediction prediction;
   final int liveHome;
   final int liveAway;
+  final int? livePenHome;
+  final int? livePenAway;
 
   const _LivePtsBadge({
     required this.prediction,
     required this.liveHome,
     required this.liveAway,
+    this.livePenHome,
+    this.livePenAway,
   });
 
   @override
@@ -293,7 +343,17 @@ class _LivePtsBadge extends StatelessWidget {
       actualHome: liveHome,
       actualAway: liveAway,
     );
-    final pts = scored.points;
+    int penPts = 0;
+    if (livePenHome != null && livePenAway != null
+        && prediction.penHome != null && prediction.penAway != null) {
+      penPts = ScoringService.calculate(
+        predHome: prediction.penHome!,
+        predAway: prediction.penAway!,
+        actualHome: livePenHome!,
+        actualAway: livePenAway!,
+      ).points;
+    }
+    final pts = scored.points + penPts;
     final color = pts >= 50
         ? AppColors.green
         : pts >= 20

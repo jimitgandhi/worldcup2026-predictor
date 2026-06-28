@@ -67,6 +67,8 @@ class FirestoreService {
     String homeTeam = '',
     String awayTeam = '',
     DateTime? kickoff,
+    int? penHome,
+    int? penAway,
   }) async {
     final id = Prediction.makeId(userId, matchId);
     await _db.collection('predictions').doc(id).set({
@@ -79,6 +81,8 @@ class FirestoreService {
       'result': 'pending',
       'createdAt': FieldValue.serverTimestamp(),
       if (kickoff != null) 'kickoffTime': Timestamp.fromDate(kickoff),
+      if (penHome != null) 'penHome': penHome,
+      if (penAway != null) 'penAway': penAway,
     }, SetOptions(merge: true));
   }
 
@@ -87,6 +91,8 @@ class FirestoreService {
     required String matchId,
     required int actualHome,
     required int actualAway,
+    int? penaltyHome,
+    int? penaltyAway,
   }) async {
     // Guard: skip if already settled to prevent double-settling
     final matchDoc = await _db.collection('matches').doc(matchId).get();
@@ -109,16 +115,36 @@ class FirestoreService {
         actualHome: actualHome, actualAway: actualAway,
       );
 
+      // Penalty bonus — only if match went to penalties AND user made a penalty prediction
+      int penPts = 0;
+      PredictionResult? penResult;
+      if (penaltyHome != null && penaltyAway != null) {
+        final userPenHome = doc.data()['penHome'] as int?;
+        final userPenAway = doc.data()['penAway'] as int?;
+        if (userPenHome != null && userPenAway != null) {
+          final penScored = ScoringService.calculate(
+            predHome: userPenHome, predAway: userPenAway,
+            actualHome: penaltyHome, actualAway: penaltyAway,
+          );
+          penPts = penScored.points;
+          penResult = penScored.result;
+        }
+      }
+
+      final totalPts = scored.points + penPts;
+
       // Update prediction
       batch.update(doc.reference, {
         'pointsEarned': scored.points,
         'result': scored.result.name,
+        if (penResult != null) 'penPointsEarned': penPts,
+        if (penResult != null) 'penResult': penResult.name,
       });
 
       // Update user totals
       final userRef = _db.collection('users').doc(userId);
       batch.update(userRef, {
-        'totalPoints': FieldValue.increment(scored.points),
+        'totalPoints': FieldValue.increment(totalPts),
         'predictionsCount': FieldValue.increment(1),
         if (scored.result == PredictionResult.exact)
           'exactCount': FieldValue.increment(1),
@@ -128,6 +154,8 @@ class FirestoreService {
           'correctResultCount': FieldValue.increment(1),
         if (scored.result == PredictionResult.oneScore)
           'oneScoreCount': FieldValue.increment(1),
+        if (penPts > 0)  // only count when user actually scored pen bonus points
+          'penBonusCount': FieldValue.increment(1),
       });
     }
 
@@ -136,6 +164,8 @@ class FirestoreService {
       'status': 'finished',
       'homeScore': actualHome,
       'awayScore': actualAway,
+      if (penaltyHome != null) 'penaltyHomeScore': penaltyHome,
+      if (penaltyAway != null) 'penaltyAwayScore': penaltyAway,
     }, SetOptions(merge: true));
 
     await batch.commit();
@@ -152,6 +182,17 @@ class FirestoreService {
           actualHome: actualHome,
           actualAway: actualAway,
         );
+        int penPts = 0;
+        if (penaltyHome != null && penaltyAway != null) {
+          final uPH = doc.data()['penHome'] as int?;
+          final uPA = doc.data()['penAway'] as int?;
+          if (uPH != null && uPA != null) {
+            penPts = ScoringService.calculate(
+              predHome: uPH, predAway: uPA,
+              actualHome: penaltyHome, actualAway: penaltyAway,
+            ).points;
+          }
+        }
         final notifRef = _db.collection('notifications').doc('${userId}_$matchId');
         notifBatch.set(notifRef, {
           'userId': userId,
@@ -163,7 +204,7 @@ class FirestoreService {
           'predHome': doc['homeScore'],
           'predAway': doc['awayScore'],
           'result': scored.result.name,
-          'pointsEarned': scored.points,
+          'pointsEarned': scored.points + penPts,
           'read': false,
           'createdAt': FieldValue.serverTimestamp(),
         });
@@ -193,6 +234,8 @@ class FirestoreService {
     required String matchId,
     required int actualHome,
     required int actualAway,
+    int? penaltyHome,
+    int? penaltyAway,
   }) async {
     final preds = await _db
         .collection('predictions')
@@ -208,23 +251,48 @@ class FirestoreService {
       final predHome = doc['homeScore'] as int;
       final predAway = doc['awayScore'] as int;
       final oldResultStr = doc.data()['result'] as String? ?? 'pending';
-      final oldPoints = doc.data()['pointsEarned'] as int? ?? 0;
+      final oldPoints = (doc.data()['pointsEarned'] as int? ?? 0)
+          + (doc.data()['penPointsEarned'] as int? ?? 0);
 
       final scored = ScoringService.calculate(
         predHome: predHome, predAway: predAway,
         actualHome: actualHome, actualAway: actualAway,
       );
 
+      // Penalty bonus
+      int penPts = 0;
+      PredictionResult? penResult;
+      if (penaltyHome != null && penaltyAway != null) {
+        final uPH = doc.data()['penHome'] as int?;
+        final uPA = doc.data()['penAway'] as int?;
+        if (uPH != null && uPA != null) {
+          final ps = ScoringService.calculate(
+            predHome: uPH, predAway: uPA,
+            actualHome: penaltyHome, actualAway: penaltyAway,
+          );
+          penPts = ps.points;
+          penResult = ps.result;
+        }
+      }
+
+      final totalPts = scored.points + penPts;
+
       predUpdates.add(MapEntry(doc.reference, {
         'pointsEarned': scored.points,
         'result': scored.result.name,
+        if (penResult != null) 'penPointsEarned': penPts,
+        if (penResult != null) 'penResult': penResult.name,
+        // Explicitly clear stale pen fields when match is not penalty
+        if (penResult == null) 'penPointsEarned': FieldValue.delete(),
+        if (penResult == null) 'penResult': FieldValue.delete(),
       }));
 
-      pointDeltas[userId] = (pointDeltas[userId] ?? 0) + scored.points - oldPoints;
+      pointDeltas[userId] = (pointDeltas[userId] ?? 0) + totalPts - oldPoints;
 
       final counts = countDeltas.putIfAbsent(userId, () => {
         'exactCount': 0, 'correctPlusOneCount': 0,
         'correctResultCount': 0, 'oneScoreCount': 0, 'predictionsCount': 0,
+        'penBonusCount': 0,
       });
 
       // Reverse old result count
@@ -233,8 +301,12 @@ class FirestoreService {
         case 'correctPlusOne': counts['correctPlusOneCount'] = counts['correctPlusOneCount']! - 1; break;
         case 'correctResult':  counts['correctResultCount'] = counts['correctResultCount']! - 1; break;
         case 'oneScore':       counts['oneScoreCount'] = counts['oneScoreCount']! - 1; break;
-        case 'pending':        counts['predictionsCount'] = counts['predictionsCount']! + 1; break; // first-time settle
+        case 'pending':        counts['predictionsCount'] = counts['predictionsCount']! + 1; break;
       }
+
+      // Reverse old penBonusCount contribution
+      final oldPenPts = doc.data()['penPointsEarned'] as int? ?? 0;
+      if (oldPenPts > 0) counts['penBonusCount'] = counts['penBonusCount']! - 1;
 
       // Apply new result count
       if (scored.result == PredictionResult.exact)
@@ -245,6 +317,9 @@ class FirestoreService {
         counts['correctResultCount'] = counts['correctResultCount']! + 1;
       else if (scored.result == PredictionResult.oneScore)
         counts['oneScoreCount'] = counts['oneScoreCount']! + 1;
+
+      // Apply new penBonusCount contribution
+      if (penPts > 0) counts['penBonusCount'] = counts['penBonusCount']! + 1;
     }
 
     final batch = _db.batch();
@@ -267,14 +342,20 @@ class FirestoreService {
           'oneScoreCount': FieldValue.increment(counts['oneScoreCount']!),
         if (counts['predictionsCount'] != 0)
           'predictionsCount': FieldValue.increment(counts['predictionsCount']!),
+        if (counts['penBonusCount'] != 0)
+          'penBonusCount': FieldValue.increment(counts['penBonusCount']!),
       });
     }
 
-    // Update match scores
+    // Update match scores — explicitly delete penalty fields if not a penalty match
     batch.set(_db.collection('matches').doc(matchId), {
       'status': 'finished',
       'homeScore': actualHome,
       'awayScore': actualAway,
+      if (penaltyHome != null) 'penaltyHomeScore': penaltyHome
+        else 'penaltyHomeScore': FieldValue.delete(),
+      if (penaltyAway != null) 'penaltyAwayScore': penaltyAway
+        else 'penaltyAwayScore': FieldValue.delete(),
     }, SetOptions(merge: true));
 
     await batch.commit();
@@ -293,15 +374,17 @@ class FirestoreService {
 
     if (preds.docs.isEmpty) return 0;
 
-    // 2. Fetch all match docs to get actual scores
+    // 2. Fetch all match docs to get actual scores (including penalty scores)
     final matchDocs = await _db.collection('matches').get();
-    final matchScores = <String, Map<String, int>>{};
+    final matchScores = <String, Map<String, int?>>{};
     for (final doc in matchDocs.docs) {
       final d = doc.data();
       if (d['homeScore'] != null && d['awayScore'] != null) {
         matchScores[doc.id] = {
           'home': d['homeScore'] as int,
           'away': d['awayScore'] as int,
+          'penaltyHome': d['penaltyHomeScore'] as int?,
+          'penaltyAway': d['penaltyAwayScore'] as int?,
         };
       }
     }
@@ -324,19 +407,43 @@ class FirestoreService {
         actualAway: scores['away']!,
       );
 
+      // Penalty bonus
+      int penPts = 0;
+      PredictionResult? penResult;
+      final penaltyHome = scores['penaltyHome'];
+      final penaltyAway = scores['penaltyAway'];
+      if (penaltyHome != null && penaltyAway != null) {
+        final uPH = d['penHome'] as int?;
+        final uPA = d['penAway'] as int?;
+        if (uPH != null && uPA != null) {
+          final ps = ScoringService.calculate(
+            predHome: uPH, predAway: uPA,
+            actualHome: penaltyHome, actualAway: penaltyAway,
+          );
+          penPts = ps.points;
+          penResult = ps.result;
+        }
+      }
+
       predUpdates.add(MapEntry(doc.reference, {
         'pointsEarned': scored.points,
         'result': scored.result.name,
+        if (penResult != null) 'penPointsEarned': penPts,
+        if (penResult != null) 'penResult': penResult.name,
+        if (penResult == null) 'penPointsEarned': FieldValue.delete(),
+        if (penResult == null) 'penResult': FieldValue.delete(),
       }));
 
       final userId = d['userId'] as String? ?? '';
-      userPointDeltas[userId] = (userPointDeltas[userId] ?? 0) + scored.points;
+      userPointDeltas[userId] = (userPointDeltas[userId] ?? 0) + scored.points + penPts;
 
       final counts = userCountReset.putIfAbsent(userId, () => {
         'exactCount': 0, 'correctPlusOneCount': 0,
         'correctResultCount': 0, 'oneScoreCount': 0, 'predictionsCount': 0,
+        'penBonusCount': 0,
       });
       counts['predictionsCount'] = counts['predictionsCount']! + 1;
+      if (penPts > 0) counts['penBonusCount'] = counts['penBonusCount']! + 1;
       if (scored.result == PredictionResult.exact)          counts['exactCount'] = counts['exactCount']! + 1;
       if (scored.result == PredictionResult.correctPlusOne) counts['correctPlusOneCount'] = counts['correctPlusOneCount']! + 1;
       if (scored.result == PredictionResult.correctResult)  counts['correctResultCount'] = counts['correctResultCount']! + 1;
@@ -367,6 +474,7 @@ class FirestoreService {
         'correctPlusOneCount': counts?['correctPlusOneCount'] ?? 0,
         'correctResultCount': counts?['correctResultCount'] ?? 0,
         'oneScoreCount': counts?['oneScoreCount'] ?? 0,
+        'penBonusCount': counts?['penBonusCount'] ?? 0,
       });
     }
     await userBatch.commit();

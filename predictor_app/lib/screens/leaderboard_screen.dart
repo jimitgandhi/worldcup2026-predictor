@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:fl_chart/fl_chart.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../models/prediction.dart';
 import '../models/user_model.dart';
@@ -62,6 +63,28 @@ class LeaderboardScreen extends StatelessWidget {
                       ],
                     ),
                   ),
+                  GestureDetector(
+                    onTap: () => showDialog(
+                      context: context,
+                      builder: (_) => _UserStatsDialog(user: user),
+                    ),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: AppColors.cardRaised,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: AppColors.border),
+                      ),
+                      child: const Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.pie_chart_outline, size: 13, color: AppColors.text2),
+                          SizedBox(width: 5),
+                          Text('Stats', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: AppColors.text2)),
+                        ],
+                      ),
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -107,14 +130,14 @@ class LeaderboardScreen extends StatelessWidget {
                                     style: const TextStyle(
                                       fontSize: 13, fontWeight: FontWeight.w700),
                                     overflow: TextOverflow.ellipsis),
-                                  Text('Pick: ${p.homeScore} – ${p.awayScore}',
+                                  Text('Pick: ${p.homeScore} – ${p.awayScore}${(p.penHome != null && p.penAway != null) ? '  ·  Pens: ${p.penHome}–${p.penAway}' : ''}',
                                     style: const TextStyle(
                                       fontSize: 11, color: AppColors.text2)),
                                 ],
                               ),
                             ),
                             const SizedBox(width: 8),
-                            ResultChip(result: p.result, points: p.pointsEarned),
+                            _PointPills(p),
                           ],
                         ),
                       );
@@ -134,7 +157,8 @@ class LeaderboardScreen extends StatelessWidget {
       builder: (_) => Dialog(
         backgroundColor: AppColors.surface,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        child: Padding(
+        child: SingleChildScrollView(
+          child: Padding(
           padding: const EdgeInsets.all(24),
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -156,21 +180,21 @@ class LeaderboardScreen extends StatelessWidget {
                 ],
               ),
               const SizedBox(height: 20),
-              _PointRow('✦ Exact Score', '50 pts', AppColors.green,
-                'Both scores exactly right.\ne.g. Predicted 2–1, result was 2–1'),
+              _PointRow('✦ Exact Score', AppColors.green,
+                'Both scores exactly right.'),
               const Divider(color: AppColors.border, height: 20),
-              _PointRow('✓~ Almost Correct', '30 pts', AppColors.gold,
-                'Right winner/draw AND one score digit matches.\ne.g. Predicted 3–1, result was 2–1  ← stacked!'),
+              _PointRow('✓~ Almost Correct', AppColors.gold,
+                'Right result and one score digit matches.'),
               const Divider(color: AppColors.border, height: 20),
-              _PointRow('✓ Correct Result only', '20 pts', AppColors.gold,
-                'Right winner/draw, but neither score matches.\ne.g. Predicted 3–0, result was 1–0'),
+              _PointRow('✓ Correct Result', AppColors.gold,
+                'Right result, but neither score matches.'),
               const Divider(color: AppColors.border, height: 20),
-              _PointRow('~ One Score only', '10 pts', AppColors.orange,
-                'One score digit matches, but wrong result.\ne.g. Predicted 2–1, result was 2–3'),
+              _PointRow('~ One Score', AppColors.orange,
+                'One score digit matches, wrong result.'),
               const Divider(color: AppColors.border, height: 20),
-              _PointRow('✗ Wrong', '0 pts', AppColors.red,
+              _PointRow('✗ Wrong', AppColors.red,
                 'Neither score correct, wrong result.'),
-              const SizedBox(height: 16),
+              const SizedBox(height: 12),
               Container(
                 width: double.infinity,
                 padding: const EdgeInsets.all(12),
@@ -180,12 +204,27 @@ class LeaderboardScreen extends StatelessWidget {
                   border: Border.all(color: AppColors.gold.withOpacity(0.2)),
                 ),
                 child: const Text(
-                  '⚡ Correct result + one score = 30 pts (stacked).\n🔒 Predictions lock the moment a match kicks off.',
+                  '⚡ Correct result + one score = stacked bonus.\n🔒 Predictions lock the moment a match kicks off.',
                   style: TextStyle(fontSize: 12, color: AppColors.gold, height: 1.5),
+                ),
+              ),
+              const SizedBox(height: 12),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: const Color(0x1A7C3AED),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: const Color(0x337C3AED)),
+                ),
+                child: const Text(
+                  '🎯 Knockout Penalty Bonus\n\nFor knockout matches, predict the penalty shootout score too. Same scoring rules, stacks on top - max 100 pts per match!',
+                  style: TextStyle(fontSize: 12, color: Color(0xFFA78BFA), height: 1.5),
                 ),
               ),
             ],
           ),
+        ),
         ),
       ),
     );
@@ -465,34 +504,277 @@ class _LeaderboardRow extends StatelessWidget {
   }
 }
 
-Widget _PointRow(String label, String pts, Color color, String desc) {
+Widget _PointPills(Prediction p) {
+  Color _resultColor(PredictionResult? r) {
+    switch (r) {
+      case PredictionResult.exact:         return AppColors.green;
+      case PredictionResult.correctPlusOne:
+      case PredictionResult.correctResult: return AppColors.gold;
+      case PredictionResult.oneScore:      return AppColors.orange;
+      case PredictionResult.wrong:         return AppColors.red;
+      default:                             return AppColors.text3;
+    }
+  }
+
+  Widget _pill(String text, Color color) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+    decoration: BoxDecoration(
+      color: color.withOpacity(0.12),
+      borderRadius: BorderRadius.circular(100),
+      border: Border.all(color: color.withOpacity(0.25)),
+    ),
+    child: Text(text,
+      style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: color)),
+  );
+
+  final isPending = p.result == null || p.result == PredictionResult.pending;
+  if (isPending) {
+    return _pill('· Pending', AppColors.text3);
+  }
+
+  final mainPts = p.pointsEarned ?? 0;
+  final penPts  = p.penPointsEarned ?? 0;
+  final mainColor = _resultColor(p.result);
+
+  return Row(
+    mainAxisSize: MainAxisSize.min,
+    children: [
+      _pill('+$mainPts', mainColor),
+      if (p.penHome != null && p.penAway != null) ...[
+        const SizedBox(width: 5),
+        _pill('⚡+$penPts', const Color(0xFF7C3AED)),
+      ],
+    ],
+  );
+}
+
+Widget _PointRow(String label, Color color, String desc) {
   return Column(
     crossAxisAlignment: CrossAxisAlignment.start,
     children: [
-      Row(
-        children: [
-          Expanded(
-            child: Text(label,
-              style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: color)),
-          ),
-          const SizedBox(width: 8),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
-            decoration: BoxDecoration(
-              color: color.withOpacity(0.12),
-              borderRadius: BorderRadius.circular(100),
-              border: Border.all(color: color.withOpacity(0.2)),
-            ),
-            child: Text(pts,
-              style: TextStyle(
-                fontSize: 12, fontWeight: FontWeight.w900, color: color,
-              )),
-          ),
-        ],
-      ),
-      const SizedBox(height: 4),
+      Text(label,
+        style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: color)),
+      const SizedBox(height: 3),
       Text(desc,
         style: const TextStyle(fontSize: 11, color: AppColors.text3, height: 1.4)),
+    ],
+  );
+}
+
+// ─── User stats pie chart dialog ─────────────────────────────────────────────
+
+class _UserStatsDialog extends StatefulWidget {
+  final UserModel user;
+  const _UserStatsDialog({required this.user});
+
+  @override
+  State<_UserStatsDialog> createState() => _UserStatsDialogState();
+}
+
+class _UserStatsDialogState extends State<_UserStatsDialog>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _animCtrl;
+  late final Animation<double> _scale;
+  late final Animation<double> _fade;
+  int? _touchedIdx;
+
+  static const _sections = [
+    (key: 'exact',      label: 'Exact',          color: AppColors.green),
+    (key: 'plusOne',    label: 'Almost Correct',  color: AppColors.gold),
+    (key: 'correct',    label: 'Correct Result',  color: Color(0xFFD4A017)),
+    (key: 'oneScore',   label: 'One Score',       color: AppColors.orange),
+    (key: 'wrong',      label: 'Wrong',           color: AppColors.red),
+  ];
+
+  @override
+  void initState() {
+    super.initState();
+    _animCtrl = AnimationController(vsync: this, duration: const Duration(milliseconds: 320));
+    _scale = CurvedAnimation(parent: _animCtrl, curve: Curves.easeOutBack);
+    _fade  = CurvedAnimation(parent: _animCtrl, curve: Curves.easeOut);
+    _animCtrl.forward();
+  }
+
+  @override
+  void dispose() {
+    _animCtrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final u = widget.user;
+    final total = u.predictionsCount;
+    final wrongCount = (total - u.exactCount - u.correctPlusOneCount
+        - u.correctResultCount - u.oneScoreCount).clamp(0, total);
+
+    final counts = [
+      u.exactCount, u.correctPlusOneCount, u.correctResultCount,
+      u.oneScoreCount, wrongCount,
+    ];
+
+    final hitRate = total > 0
+        ? ((u.exactCount + u.correctPlusOneCount + u.correctResultCount) / total * 100).toStringAsFixed(1)
+        : '0.0';
+    final avgPts = total > 0
+        ? (u.totalPoints / total).toStringAsFixed(1)
+        : '0.0';
+
+    final sections = <PieChartSectionData>[];
+    for (int i = 0; i < _sections.length; i++) {
+      final count = counts[i];
+      if (count <= 0) continue;
+      final isTouched = _touchedIdx == i;
+      sections.add(PieChartSectionData(
+        value: count.toDouble(),
+        color: _sections[i].color,
+        radius: isTouched ? 62 : 54,
+        title: isTouched ? '${(count / total * 100).toStringAsFixed(0)}%' : '',
+        titleStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: Colors.white),
+        borderSide: isTouched
+            ? BorderSide(color: _sections[i].color, width: 2)
+            : BorderSide.none,
+      ));
+    }
+
+    return FadeTransition(
+      opacity: _fade,
+      child: ScaleTransition(
+        scale: _scale,
+        child: Dialog(
+      backgroundColor: AppColors.surface,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Row(
+              children: [
+                const Text('📊', style: TextStyle(fontSize: 20)),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text('${u.displayName.split(' ').first}\'s Stats',
+                    style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w900)),
+                ),
+                GestureDetector(
+                  onTap: () => Navigator.pop(context),
+                  child: const Icon(Icons.close, size: 20, color: AppColors.text3),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            // Metric pills row
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              children: [
+                _StatPill('Hit Rate', '$hitRate%', AppColors.gold),
+                _StatPill('Avg Pts', avgPts, AppColors.green),
+                _StatPill('Matches', '$total', AppColors.text2),
+              ],
+            ),
+            const SizedBox(height: 20),
+            // Pie chart with sweep-in animation
+            total == 0
+              ? const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 24),
+                  child: Text('No settled predictions yet',
+                    style: TextStyle(color: AppColors.text3)),
+                )
+              : TweenAnimationBuilder<double>(
+                  tween: Tween(begin: 0.0, end: 1.0),
+                  duration: const Duration(milliseconds: 650),
+                  curve: Curves.easeOutCubic,
+                  builder: (context, t, _) {
+                    return SizedBox(
+                      height: 180,
+                      child: PieChart(
+                        PieChartData(
+                          sections: sections,
+                          centerSpaceRadius: 80 - (32 * t), // 80 → 48: ring expands outward
+                          sectionsSpace: 2,
+                          pieTouchData: PieTouchData(
+                            touchCallback: (event, response) {
+                              setState(() {
+                                if (!event.isInterestedForInteractions ||
+                                    response?.touchedSection == null) {
+                                  _touchedIdx = null;
+                                } else {
+                                  _touchedIdx = response!.touchedSection!.touchedSectionIndex;
+                                }
+                              });
+                            },
+                          ),
+                        ),
+                      ),
+                    );
+                  },
+                ),
+            // Center label overlay (accuracy)
+            if (total > 0)
+              Transform.translate(
+                offset: const Offset(0, -108),
+                child: Column(
+                  children: [
+                    Text(hitRate,
+                      style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: AppColors.gold)),
+                    const Text('%', style: TextStyle(fontSize: 10, color: AppColors.text3, fontWeight: FontWeight.w700)),
+                  ],
+                ),
+              ),
+            // Legend
+            Wrap(
+              spacing: 12,
+              runSpacing: 6,
+              alignment: WrapAlignment.center,
+              children: List.generate(_sections.length, (i) {
+                final count = counts[i];
+                if (count <= 0) return const SizedBox.shrink();
+                return Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      width: 8, height: 8,
+                      decoration: BoxDecoration(
+                        color: _sections[i].color, shape: BoxShape.circle),
+                    ),
+                    const SizedBox(width: 4),
+                    Text('${_sections[i].label} ($count)',
+                      style: const TextStyle(fontSize: 10, color: AppColors.text2, fontWeight: FontWeight.w600)),
+                  ],
+                );
+              }),
+            ),
+            if (u.penBonusCount > 0)
+              Padding(
+                padding: const EdgeInsets.only(top: 10),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const Text('⚡', style: TextStyle(fontSize: 11)),
+                    const SizedBox(width: 4),
+                    Text('Pen Bonus earned: ${u.penBonusCount}x',
+                      style: const TextStyle(fontSize: 11, color: Color(0xFFA78BFA), fontWeight: FontWeight.w600)),
+                  ],
+                ),
+              ),
+          ],
+        ),
+      ),
+        ),
+      ),
+    );
+  }
+}
+
+Widget _StatPill(String label, String value, Color color) {
+  return Column(
+    children: [
+      Text(value,
+        style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: color)),
+      const SizedBox(height: 2),
+      Text(label,
+        style: const TextStyle(fontSize: 10, color: AppColors.text3, fontWeight: FontWeight.w600)),
     ],
   );
 }

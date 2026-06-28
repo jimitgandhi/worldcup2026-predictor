@@ -90,6 +90,10 @@ class _AdminScreenState extends State<AdminScreen>
   Future<void> _showSettleDialog(Match match) async {
     int home = match.homeScore ?? 0;
     int away = match.awayScore ?? 0;
+    bool wentToPens = match.wentToPenalties;
+    int penHome = match.penaltyHomeScore ?? 5;
+    int penAway = match.penaltyAwayScore ?? 4;
+
     await showDialog(
       context: context,
       builder: (ctx) => StatefulBuilder(
@@ -97,13 +101,48 @@ class _AdminScreenState extends State<AdminScreen>
           backgroundColor: AppColors.surface,
           title: Text('Settle: ${match.homeTeam} vs ${match.awayTeam}',
             style: const TextStyle(color: AppColors.text, fontSize: 14, fontWeight: FontWeight.w700)),
-          content: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
             children: [
-              _ScoreSelector(label: match.homeTeam, value: home, onChanged: (v) => setD(() => home = v)),
-              const Padding(padding: EdgeInsets.symmetric(horizontal: 16),
-                child: Text('—', style: TextStyle(color: AppColors.text2, fontSize: 20))),
-              _ScoreSelector(label: match.awayTeam, value: away, onChanged: (v) => setD(() => away = v)),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  _ScoreSelector(label: match.homeTeam, value: home, onChanged: (v) => setD(() => home = v)),
+                  const Padding(padding: EdgeInsets.symmetric(horizontal: 16),
+                    child: Text('—', style: TextStyle(color: AppColors.text2, fontSize: 20))),
+                  _ScoreSelector(label: match.awayTeam, value: away, onChanged: (v) => setD(() => away = v)),
+                ],
+              ),
+              if (match.isKnockout) ...[
+                const SizedBox(height: 16),
+                const Divider(color: AppColors.border),
+                Row(
+                  children: [
+                    const Text('Went to penalties?',
+                      style: TextStyle(color: AppColors.text2, fontSize: 13)),
+                    const Spacer(),
+                    Switch.adaptive(
+                      value: wentToPens,
+                      onChanged: (v) => setD(() => wentToPens = v),
+                      activeColor: const Color(0xFF7C3AED),
+                    ),
+                  ],
+                ),
+                if (wentToPens) ...[
+                  const Text('Penalty shootout score:',
+                    style: TextStyle(color: AppColors.text3, fontSize: 11)),
+                  const SizedBox(height: 8),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      _ScoreSelector(label: match.homeTeam, value: penHome, onChanged: (v) => setD(() => penHome = v)),
+                      const Padding(padding: EdgeInsets.symmetric(horizontal: 16),
+                        child: Text('—', style: TextStyle(color: AppColors.text2, fontSize: 20))),
+                      _ScoreSelector(label: match.awayTeam, value: penAway, onChanged: (v) => setD(() => penAway = v)),
+                    ],
+                  ),
+                ],
+              ],
             ],
           ),
           actions: [
@@ -111,7 +150,13 @@ class _AdminScreenState extends State<AdminScreen>
               child: const Text('Cancel', style: TextStyle(color: AppColors.text3))),
             ElevatedButton(
               style: ElevatedButton.styleFrom(backgroundColor: AppColors.gold),
-              onPressed: () async { Navigator.pop(ctx); await _settle(match, home, away); },
+              onPressed: () async {
+                Navigator.pop(ctx);
+                await _settle(match, home, away,
+                  penaltyHome: wentToPens ? penHome : null,
+                  penaltyAway: wentToPens ? penAway : null,
+                );
+              },
               child: const Text('Settle & Score',
                 style: TextStyle(color: AppColors.bg, fontWeight: FontWeight.w700)),
             ),
@@ -121,13 +166,19 @@ class _AdminScreenState extends State<AdminScreen>
     );
   }
 
-  Future<void> _settle(Match match, int home, int away) async {
+  Future<void> _settle(Match match, int home, int away, {int? penaltyHome, int? penaltyAway}) async {
     setState(() => _settling = match.id);
     try {
-      // Always use resettleMatch for admin path — handles both first-time and re-settlement
-      await _firestore.resettleMatch(matchId: match.id, actualHome: home, actualAway: away);
+      await _firestore.resettleMatch(
+        matchId: match.id,
+        actualHome: home,
+        actualAway: away,
+        penaltyHome: penaltyHome,
+        penaltyAway: penaltyAway,
+      );
+      final penStr = penaltyHome != null ? ' (Pens: $penaltyHome–$penaltyAway)' : '';
       final verb = match.status == MatchStatus.finished ? 'Re-settled' : 'Settled';
-      _snack('✅ $verb: ${match.homeTeam} $home–$away ${match.awayTeam}', AppColors.gold, AppColors.bg);
+      _snack('✅ $verb: ${match.homeTeam} $home–$away ${match.awayTeam}$penStr', AppColors.gold, AppColors.bg);
       _loadMatches(); _loadUsers();
     } catch (e) { _snack('Error: $e', Colors.red.shade800, Colors.white); }
     finally { if (mounted) setState(() => _settling = null); }
@@ -244,6 +295,55 @@ class _AdminScreenState extends State<AdminScreen>
   Future<void> _testNotification() async {
     await NotificationService.sendTestNotification();
     _snack('🔔 Test notification sent!', AppColors.gold, AppColors.bg);
+  }
+
+  Future<void> _testScheduledNotification() async {
+    final mode = await NotificationService.scheduleTestReminder();
+    if (!mounted) return;
+    final msg = mode == 'exact'
+        ? '⏰ Scheduled (exact)! Should fire in 30s — background the app now.'
+        : mode == 'inexact'
+            ? '⚠️ Scheduled (inexact — exact alarm denied). May be delayed.'
+            : '❌ Failed to schedule: $mode';
+    _snack(msg, mode.startsWith('failed') ? AppColors.red : AppColors.gold, AppColors.bg);
+  }
+
+  Future<void> _showPendingNotifications() async {
+    final pending = await NotificationService.getPendingNotifications();
+    if (!mounted) return;
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppColors.cardRaised,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Text('🔔 Pending: ${pending.length}',
+            style: const TextStyle(color: AppColors.text, fontSize: 16, fontWeight: FontWeight.w700)),
+        content: SizedBox(
+          width: double.maxFinite,
+          child: pending.isEmpty
+              ? const Text('No notifications scheduled.\nThis means pre-match reminders are NOT queued.',
+                  style: TextStyle(color: AppColors.text2, fontSize: 13))
+              : ListView.builder(
+                  shrinkWrap: true,
+                  itemCount: pending.length.clamp(0, 20),
+                  itemBuilder: (_, i) {
+                    final n = pending[i];
+                    return Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 4),
+                      child: Text('• ${n.title ?? '(no title)'}',
+                          style: const TextStyle(color: AppColors.text2, fontSize: 12)),
+                    );
+                  },
+                ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('OK', style: TextStyle(color: AppColors.gold)),
+          ),
+        ],
+      ),
+    );
   }
 
 
@@ -397,6 +497,8 @@ class _AdminScreenState extends State<AdminScreen>
             demoMatchId: _demoMatchId,
             onDeleteAll: _deleteAllPredictions,
             onTestNotification: _testNotification,
+            onTestScheduledNotification: _testScheduledNotification,
+            onShowPendingNotifications: _showPendingNotifications,
             onStartDemo: _startDemoMatch,
             onStopDemo: _stopDemoMatch,
             onRefreshRanks: _refreshRanks,
@@ -672,7 +774,7 @@ class _LeaderboardTab extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final text = users.asMap().entries.map((e) =>
-      '#${e.key + 1}  ${e.value.displayName}  —  ${e.value.totalPoints} pts').join('\n');
+      '#${e.key + 1}  ${e.value.displayName}: ${e.value.totalPoints} pts').join('\n');
 
     return ListView(
       padding: const EdgeInsets.all(16),
@@ -739,6 +841,8 @@ class _DangerTab extends StatelessWidget {
   final String? demoMatchId;
   final VoidCallback onDeleteAll;
   final VoidCallback onTestNotification;
+  final VoidCallback onTestScheduledNotification;
+  final VoidCallback onShowPendingNotifications;
   final VoidCallback onStartDemo;
   final VoidCallback onStopDemo;
   final VoidCallback onRefreshRanks;
@@ -749,6 +853,8 @@ class _DangerTab extends StatelessWidget {
     this.demoMatchId,
     required this.onDeleteAll,
     required this.onTestNotification,
+    required this.onTestScheduledNotification,
+    required this.onShowPendingNotifications,
     required this.onStartDemo,
     required this.onStopDemo,
     required this.onRefreshRanks,
@@ -772,7 +878,7 @@ class _DangerTab extends StatelessWidget {
               color: demoRunning ? AppColors.red : AppColors.green,
               title: demoRunning ? 'Stop demo match' : 'Start demo live match',
               subtitle: demoRunning
-                  ? 'Currently running — score increments every 30s'
+                  ? 'Currently running - score increments every 30s'
                   : 'Makes first upcoming match live with auto-incrementing score',
               onTap: demoRunning ? onStopDemo : onStartDemo,
             ),
@@ -789,6 +895,20 @@ class _DangerTab extends StatelessWidget {
               title: 'Send test notification',
               subtitle: 'Fires an instant notification to verify setup',
               onTap: onTestNotification,
+            ),
+            _ActionTile(
+              icon: Icons.alarm,
+              color: AppColors.orange,
+              title: 'Schedule test (30 seconds)',
+              subtitle: 'Schedules via zonedSchedule — background the app, should fire in 30s',
+              onTap: onTestScheduledNotification,
+            ),
+            _ActionTile(
+              icon: Icons.list_alt,
+              color: AppColors.blue,
+              title: 'Show pending notifications',
+              subtitle: 'Lists scheduled pre-match reminders — should show upcoming matches',
+              onTap: onShowPendingNotifications,
             ),
           ],
         ),

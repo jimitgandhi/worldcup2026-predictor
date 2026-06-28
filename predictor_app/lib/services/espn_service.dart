@@ -6,9 +6,9 @@ class EspnService {
   static const _baseUrl =
       'https://site.api.espn.com/apis/site/v2/sports/soccer/fifa.world';
 
-  // WC2026 group stage: June 11 – July 3, 2026 (opener is June 11)
+  // WC2026: group stage Jun 11 – Jul 3, knockout rounds through Final Jul 23
   static const _groupStageStart = '20260611';
-  static const _groupStageEnd   = '20260703';
+  static const _groupStageEnd   = '20260723';
 
   /// Fetch today's live/upcoming matches for the live poll
   Future<List<Match>> fetchToday() async {

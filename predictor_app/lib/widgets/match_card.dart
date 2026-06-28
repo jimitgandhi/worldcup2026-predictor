@@ -9,7 +9,7 @@ import 'match_widgets.dart';
 class MatchCard extends StatefulWidget {
   final Match match;
   final Prediction? prediction;
-  final Future<void> Function(int home, int away)? onSubmit;
+  final Future<void> Function(int home, int away, int? penHome, int? penAway)? onSubmit;
 
   const MatchCard({
     super.key,
@@ -28,24 +28,41 @@ class _MatchCardState extends State<MatchCard> {
   bool _saved = false;
   bool _submitting = false;
 
+  // Penalty bonus prediction state (knockout only)
+  int _penHomeVal = 1;
+  int _penAwayVal = 0;
+  bool _penModified = false; // true once user touches the pen stepper or has a saved pen pred
+
   @override
   void initState() {
     super.initState();
-    if (widget.prediction != null) {
-      _homeVal = widget.prediction!.homeScore;
-      _awayVal = widget.prediction!.awayScore;
+    final p = widget.prediction;
+    if (p != null) {
+      _homeVal = p.homeScore;
+      _awayVal = p.awayScore;
       _saved = true;
+      if (p.penHome != null && p.penAway != null) {
+        _penHomeVal = p.penHome!;
+        _penAwayVal = p.penAway!;
+        _penModified = true; // existing pen prediction counts as intentional
+      }
     }
   }
 
   @override
   void didUpdateWidget(covariant MatchCard old) {
     super.didUpdateWidget(old);
-    // Reset saved state when prediction is deleted or replaced
     if (old.prediction?.id != widget.prediction?.id) {
-      _homeVal = widget.prediction?.homeScore ?? 0;
-      _awayVal = widget.prediction?.awayScore ?? 0;
-      _saved = widget.prediction != null;
+      final p = widget.prediction;
+      _homeVal = p?.homeScore ?? 0;
+      _awayVal = p?.awayScore ?? 0;
+      _saved = p != null;
+      _penModified = false;
+      if (p?.penHome != null && p?.penAway != null) {
+        _penHomeVal = p!.penHome!;
+        _penAwayVal = p.penAway!;
+        _penModified = true;
+      }
     }
   }
 
@@ -56,6 +73,18 @@ class _MatchCardState extends State<MatchCard> {
       } else {
         _awayVal = (_awayVal + delta).clamp(0, 20);
       }
+      _saved = false;
+    });
+  }
+
+  void _stepPen(bool isHome, int delta) {
+    setState(() {
+      if (isHome) {
+        _penHomeVal = (_penHomeVal + delta).clamp(0, 20);
+      } else {
+        _penAwayVal = (_penAwayVal + delta).clamp(0, 20);
+      }
+      _penModified = true; // user has intentionally set a pen prediction
       _saved = false;
     });
   }
@@ -76,14 +105,10 @@ class _MatchCardState extends State<MatchCard> {
       ),
       child: Column(
         children: [
-          // Header
           _Header(match: match),
-          // Body
-          _Body(
-            match: match,
-            showScore: showScore,
-          ),
-          // Footer — always show for live/finished; show for upcoming only if participating/can predict
+          _Body(match: match, showScore: showScore,
+            predictHomeVal: canPredict ? _homeVal : null,
+            predictAwayVal: canPredict ? _awayVal : null),
           if (hasPrediction || canPredict || match.status != MatchStatus.upcoming)
             _Footer(
               match: match,
@@ -91,13 +116,21 @@ class _MatchCardState extends State<MatchCard> {
               canPredict: canPredict,
               homeVal: _homeVal,
               awayVal: _awayVal,
+              penHomeVal: _penHomeVal,
+              penAwayVal: _penAwayVal,
               saved: _saved,
               submitting: _submitting,
               onStep: _step,
+              onPenStep: _stepPen,
               onSubmit: () async {
                 setState(() => _submitting = true);
                 try {
-                  await widget.onSubmit!(_homeVal, _awayVal);
+                  await widget.onSubmit!(
+                    _homeVal, _awayVal,
+                    // Only send pen prediction if user has actively set it
+                    match.isKnockout && _penModified ? _penHomeVal : null,
+                    match.isKnockout && _penModified ? _penAwayVal : null,
+                  );
                   if (mounted) setState(() { _saved = true; _submitting = false; });
                 } catch (_) {
                   if (mounted) {
@@ -161,69 +194,143 @@ class _Header extends StatelessWidget {
 class _Body extends StatelessWidget {
   final Match match;
   final bool showScore;
-  const _Body({required this.match, required this.showScore});
+  final int? predictHomeVal;
+  final int? predictAwayVal;
+  const _Body({required this.match, required this.showScore, this.predictHomeVal, this.predictAwayVal});
+
+  Widget _flagWithGlow(String logoUrl, Color? glow) {
+    if (glow == null) return FlagImage(logoUrl: logoUrl);
+    return Container(
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        boxShadow: [BoxShadow(color: glow.withOpacity(0.5), blurRadius: 18, spreadRadius: 2)],
+      ),
+      child: FlagImage(logoUrl: logoUrl),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
+    Color? homeGlow, awayGlow;
+
+    if (predictHomeVal != null && predictAwayVal != null) {
+      // Prediction input: glow follows predicted score
+      if (predictHomeVal! > predictAwayVal!) {
+        homeGlow = AppColors.green;
+      } else if (predictAwayVal! > predictHomeVal!) {
+        awayGlow = AppColors.green;
+      } else {
+        homeGlow = awayGlow = AppColors.gold;
+      }
+    } else if (showScore && match.homeScore != null && match.awayScore != null) {
+      // Live / finished: glow follows actual result
+      final h = match.homeScore!;
+      final a = match.awayScore!;
+      if (match.wentToPenalties &&
+          match.penaltyHomeScore != null && match.penaltyAwayScore != null) {
+        // Penalty decider — winner is the team with more pen goals
+        if (match.penaltyHomeScore! > match.penaltyAwayScore!) {
+          homeGlow = AppColors.green;
+        } else {
+          awayGlow = AppColors.green;
+        }
+      } else if (h > a) {
+        homeGlow = AppColors.green;
+      } else if (a > h) {
+        awayGlow = AppColors.green;
+      } else {
+        // Draw — amber on both (live or finished)
+        homeGlow = awayGlow = AppColors.gold;
+      }
+    }
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 16),
-      child: Row(
+      child: Column(
         children: [
-          // Home team
-          Expanded(
-            child: Column(
-              children: [
-                FlagImage(logoUrl: match.homeTeamLogo),
-                const SizedBox(height: 8),
-                Text(match.homeTeam,
-                  style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
-                  textAlign: TextAlign.center,
-                ),
-              ],
-            ),
-          ),
-          // Score or VS
-          SizedBox(
-            width: 70,
-            child: Column(
-              children: [
-                if (showScore) ...[
-                  Text(
-                    '${match.homeScore ?? 0} – ${match.awayScore ?? 0}',
-                    style: TextStyle(
-                      fontSize: 24, fontWeight: FontWeight.w900,
-                      letterSpacing: -0.5,
-                      color: match.status == MatchStatus.live
-                          ? AppColors.gold
-                          : AppColors.text,
+          Row(
+            children: [
+              // Home team
+              Expanded(
+                child: Column(
+                  children: [
+                    _flagWithGlow(match.homeTeamLogo, homeGlow),
+                    const SizedBox(height: 8),
+                    Text(match.homeTeam,
+                      style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
+                      textAlign: TextAlign.center,
                     ),
-                  ),
-                  if (match.status == MatchStatus.live && match.displayClock != null)
-                    Text(match.displayClock!,
-                      style: const TextStyle(
-                        fontSize: 11, color: AppColors.red, fontWeight: FontWeight.w600,
-                      )),
-                ] else
-                  const Text('VS',
-                    style: TextStyle(
-                      fontSize: 14, fontWeight: FontWeight.w700,
-                      color: AppColors.text3, letterSpacing: 1,
-                    )),
-              ],
-            ),
-          ),
-          // Away team
-          Expanded(
-            child: Column(
-              children: [
-                FlagImage(logoUrl: match.awayTeamLogo),
-                const SizedBox(height: 8),
-                Text(match.awayTeam,
-                  style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
-                  textAlign: TextAlign.center,
+                  ],
                 ),
-              ],
-            ),
+              ),
+              // Score or VS
+              SizedBox(
+                width: 80,
+                child: Column(
+                  children: [
+                    if (showScore) ...[
+                      Text(
+                        '${match.homeScore ?? 0} – ${match.awayScore ?? 0}',
+                        style: TextStyle(
+                          fontSize: 24, fontWeight: FontWeight.w900,
+                          letterSpacing: -0.5,
+                          color: match.status == MatchStatus.live
+                              ? AppColors.gold
+                              : AppColors.text,
+                        ),
+                      ),
+                      if (match.status == MatchStatus.live && match.displayClock != null)
+                        Text(match.displayClock!,
+                          style: const TextStyle(
+                            fontSize: 11, color: AppColors.red, fontWeight: FontWeight.w600,
+                          )),
+                      // Penalty shootout score
+                      if (match.wentToPenalties)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 4),
+                          child: FittedBox(
+                            fit: BoxFit.scaleDown,
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: const Color(0x1A7C3AED),
+                                borderRadius: BorderRadius.circular(6),
+                                border: Border.all(color: const Color(0x337C3AED)),
+                              ),
+                              child: Text(
+                                '⚡ ${match.penaltyHomeScore}–${match.penaltyAwayScore}',
+                                style: const TextStyle(
+                                  fontSize: 10, fontWeight: FontWeight.w700,
+                                  color: Color(0xFFA78BFA),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      if (match.isKnockout && !match.wentToPenalties && match.status == MatchStatus.finished)
+                        const SizedBox.shrink(),
+                    ] else
+                      const Text('VS',
+                        style: TextStyle(
+                          fontSize: 14, fontWeight: FontWeight.w700,
+                          color: AppColors.text3, letterSpacing: 1,
+                        )),
+                  ],
+                ),
+              ),
+              // Away team
+              Expanded(
+                child: Column(
+                  children: [
+                    _flagWithGlow(match.awayTeamLogo, awayGlow),
+                    const SizedBox(height: 8),
+                    Text(match.awayTeam,
+                      style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
+                      textAlign: TextAlign.center,
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ),
         ],
       ),
@@ -237,9 +344,12 @@ class _Footer extends StatelessWidget {
   final bool canPredict;
   final int homeVal;
   final int awayVal;
+  final int penHomeVal;
+  final int penAwayVal;
   final bool saved;
   final bool submitting;
   final Function(bool isHome, int delta) onStep;
+  final Function(bool isHome, int delta) onPenStep;
   final VoidCallback onSubmit;
 
   const _Footer({
@@ -248,9 +358,12 @@ class _Footer extends StatelessWidget {
     required this.canPredict,
     required this.homeVal,
     required this.awayVal,
+    required this.penHomeVal,
+    required this.penAwayVal,
     required this.saved,
     required this.submitting,
     required this.onStep,
+    required this.onPenStep,
     required this.onSubmit,
   });
 
@@ -259,15 +372,94 @@ class _Footer extends StatelessWidget {
     final hasPrediction = prediction != null;
     final isSettled = hasPrediction && prediction!.result != PredictionResult.pending;
     final isFinishedOrLive = match.status != MatchStatus.upcoming;
+    final totalPoints = (prediction?.pointsEarned ?? 0) + (prediction?.penPointsEarned ?? 0);
+    final hasPenBonus = prediction?.penResult != null && prediction!.penResult != PredictionResult.pending;
+    final showPenInput = canPredict && match.isKnockout;
 
+    // Knockout + can predict: two-section layout with tall submit button
+    if (showPenInput) {
+      return Container(
+        decoration: const BoxDecoration(
+          border: Border(top: BorderSide(color: AppColors.border)),
+        ),
+        child: IntrinsicHeight(
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              // Left: stacked main + pen sections
+              Expanded(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    // Main score section
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          const Text('SCORE',
+                            style: TextStyle(fontSize: 9, color: AppColors.text3,
+                              fontWeight: FontWeight.w700, letterSpacing: 0.8)),
+                          _ScoreStepper(homeVal: homeVal, awayVal: awayVal, onStep: onStep),
+                        ],
+                      ),
+                    ),
+                    Container(height: 1, color: AppColors.border),
+                    // Pen section — purple tinted
+                    Container(
+                      color: const Color(0x0F7C3AED),
+                      padding: const EdgeInsets.fromLTRB(12, 9, 12, 9),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                decoration: BoxDecoration(
+                                  color: const Color(0x207C3AED),
+                                  borderRadius: BorderRadius.circular(5),
+                                ),
+                                child: const Text('⚡ PENS',
+                                  style: TextStyle(fontSize: 8, fontWeight: FontWeight.w800,
+                                    letterSpacing: 0.6, color: Color(0xFFA78BFA))),
+                              ),
+                              _ScoreStepper(
+                                homeVal: penHomeVal, awayVal: penAwayVal, onStep: onPenStep,
+                                accentColor: const Color(0xFF7C3AED),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 4),
+                          const Text('Same scoring rules apply',
+                            style: TextStyle(fontSize: 9, color: Color(0x80A78BFA))),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              // Vertical divider
+              Container(width: 1, color: AppColors.border),
+              // Tall submit button (rounded bottom-right to match card)
+              _SubmitBtnTall(saved: saved, submitting: submitting, onSubmit: onSubmit),
+            ],
+          ),
+        ),
+      );
+    }
+
+    // Standard layout
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
       decoration: const BoxDecoration(
         border: Border(top: BorderSide(color: AppColors.border)),
       ),
       child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          // Left: your prediction score (or "No prediction" label)
           if (canPredict)
             _ScoreStepper(homeVal: homeVal, awayVal: awayVal, onStep: onStep)
           else if (hasPrediction)
@@ -284,6 +476,20 @@ class _Footer extends StatelessWidget {
                     fontSize: 15, fontWeight: FontWeight.w800, color: AppColors.text,
                   ),
                 ),
+                if (prediction!.penHome != null && prediction!.penAway != null)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 3),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.sports_soccer, size: 10, color: Color(0xFFA78BFA)),
+                        const SizedBox(width: 3),
+                        Text(
+                          'Pens: ${prediction!.penHome} – ${prediction!.penAway}',
+                          style: const TextStyle(fontSize: 10, color: Color(0xFFA78BFA), fontWeight: FontWeight.w600),
+                        ),
+                      ],
+                    ),
+                  ),
               ],
             )
           else if (isFinishedOrLive)
@@ -293,27 +499,51 @@ class _Footer extends StatelessWidget {
 
           const Spacer(),
 
-          // Right: result chip, pending chip, submit btn, or +0 pts
           if (isSettled)
-            ResultChip(result: prediction!.result, points: prediction!.pointsEarned)
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                ResultChip(
+                  result: prediction!.result,
+                  points: prediction!.pointsEarned ?? 0,
+                ),
+                if (hasPenBonus) ...[
+                  const SizedBox(width: 6),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: const Color(0x1A7C3AED),
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(color: const Color(0x337C3AED)),
+                    ),
+                    child: Text(
+                      '⚡ +${prediction!.penPointsEarned ?? 0}',
+                      style: const TextStyle(
+                        fontSize: 11, fontWeight: FontWeight.w700,
+                        color: Color(0xFFA78BFA),
+                      ),
+                    ),
+                  ),
+                ],
+              ],
+            )
           else if (hasPrediction && isFinishedOrLive) ...[
-            // Live: show what pts they'd get if current score is final
             if (match.status == MatchStatus.live &&
-                match.homeScore != null && match.awayScore != null) ...[
+                match.homeScore != null && match.awayScore != null)
               _LivePtsPreview(
                 prediction: prediction!,
                 liveHome: match.homeScore!,
                 liveAway: match.awayScore!,
-              ),
-            ] else
+                wentToPenalties: match.wentToPenalties,
+                livePenHome: match.penaltyHomeScore,
+                livePenAway: match.penaltyAwayScore,
+              )
+            else
               ResultChip(result: PredictionResult.pending, points: 0),
           ]
-          else if (hasPrediction && canPredict)
-            _SubmitBtn(saved: saved, submitting: submitting, onSubmit: onSubmit)
-          else if (!hasPrediction && canPredict)
+          else if (canPredict)
             _SubmitBtn(saved: saved, submitting: submitting, onSubmit: onSubmit)
           else if (!hasPrediction && isFinishedOrLive)
-            // Didn't participate — show +0
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 5),
               decoration: BoxDecoration(
@@ -322,9 +552,7 @@ class _Footer extends StatelessWidget {
                 border: Border.all(color: AppColors.border),
               ),
               child: const Text('+0 pts',
-                style: TextStyle(
-                  color: AppColors.text3, fontSize: 11, fontWeight: FontWeight.w700,
-                )),
+                style: TextStyle(color: AppColors.text3, fontSize: 11, fontWeight: FontWeight.w700)),
             ),
         ],
       ),
@@ -336,17 +564,19 @@ class _ScoreStepper extends StatelessWidget {
   final int homeVal;
   final int awayVal;
   final Function(bool isHome, int delta) onStep;
+  final Color? accentColor;
 
   const _ScoreStepper({
     required this.homeVal, required this.awayVal, required this.onStep,
+    this.accentColor,
   });
 
   Widget _stepper(int value, bool isHome) {
     return Container(
       decoration: BoxDecoration(
-        color: AppColors.cardRaised,
+        color: accentColor != null ? accentColor!.withOpacity(0.08) : AppColors.cardRaised,
         borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: AppColors.border),
+        border: Border.all(color: accentColor != null ? accentColor!.withOpacity(0.3) : AppColors.border),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -417,9 +647,11 @@ class _SubmitBtn extends StatelessWidget {
         duration: const Duration(milliseconds: 250),
         padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 9),
         decoration: BoxDecoration(
-          color: saved ? AppColors.greenDim : (submitting ? AppColors.cardRaised : AppColors.gold),
+          color: saved ? AppColors.greenDim : (submitting ? AppColors.cardRaised : const Color(0x44C9A84C)),
           borderRadius: BorderRadius.circular(10),
-          border: saved ? Border.all(color: AppColors.green.withOpacity(0.25)) : null,
+          border: saved
+              ? Border.all(color: AppColors.green.withOpacity(0.25))
+              : submitting ? null : Border.all(color: const Color(0x88C9A84C)),
         ),
         child: submitting
           ? const SizedBox(
@@ -428,10 +660,66 @@ class _SubmitBtn extends StatelessWidget {
           : Text(
               saved ? '✓ Saved' : 'Submit',
               style: TextStyle(
-                color: saved ? AppColors.green : AppColors.bg,
+                color: saved ? AppColors.green : AppColors.gold,
                 fontSize: 12, fontWeight: FontWeight.w800,
               ),
             ),
+      ),
+    );
+  }
+}
+
+/// Tall submit button — spans full height of the knockout prediction section.
+class _SubmitBtnTall extends StatelessWidget {
+  final bool saved;
+  final bool submitting;
+  final VoidCallback onSubmit;
+  const _SubmitBtnTall({required this.saved, required this.submitting, required this.onSubmit});
+
+  @override
+  Widget build(BuildContext context) {
+    final disabled = saved || submitting;
+    return GestureDetector(
+      onTap: disabled ? null : onSubmit,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 250),
+      width: 64,
+        decoration: BoxDecoration(
+          color: saved
+              ? AppColors.greenDim
+              : submitting
+                  ? AppColors.cardRaised
+                : const Color(0x44C9A84C), // dim gold tint — subtle, matches dark theme
+        borderRadius: const BorderRadius.only(bottomRight: Radius.circular(15)),
+        border: saved
+            ? Border.all(color: AppColors.green.withOpacity(0.2))
+            : submitting
+                ? null
+                : Border.all(color: const Color(0x88C9A84C)),
+      ),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            if (submitting)
+              const SizedBox(
+                width: 16, height: 16,
+                child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.text2))
+            else
+              Icon(
+                saved ? Icons.check_rounded : Icons.bookmark_rounded,
+                size: 22,
+                color: saved ? AppColors.green : AppColors.gold,
+              ),
+            const SizedBox(height: 5),
+            Text(
+              saved ? 'Saved' : 'Save',
+              style: TextStyle(
+                fontSize: 11, fontWeight: FontWeight.w800, letterSpacing: 0.3,
+                color: saved ? AppColors.green : AppColors.gold,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -442,11 +730,17 @@ class _LivePtsPreview extends StatelessWidget {
   final Prediction prediction;
   final int liveHome;
   final int liveAway;
+  final bool wentToPenalties;
+  final int? livePenHome;
+  final int? livePenAway;
 
   const _LivePtsPreview({
     required this.prediction,
     required this.liveHome,
     required this.liveAway,
+    this.wentToPenalties = false,
+    this.livePenHome,
+    this.livePenAway,
   });
 
   @override
@@ -457,14 +751,28 @@ class _LivePtsPreview extends StatelessWidget {
       actualHome: liveHome,
       actualAway: liveAway,
     );
-    final pts = scored.points;
-    final color = pts >= 50
+
+    int penPts = 0;
+    if (wentToPenalties && livePenHome != null && livePenAway != null
+        && prediction.penHome != null && prediction.penAway != null) {
+      penPts = ScoringService.calculate(
+        predHome: prediction.penHome!,
+        predAway: prediction.penAway!,
+        actualHome: livePenHome!,
+        actualAway: livePenAway!,
+      ).points;
+    }
+
+    final pts = scored.points + penPts;
+    final color = pts >= 80
         ? AppColors.green
-        : pts >= 20
-            ? AppColors.gold
-            : pts >= 10
-                ? AppColors.orange
-                : AppColors.text3;
+        : pts >= 50
+            ? AppColors.green
+            : pts >= 20
+                ? AppColors.gold
+                : pts >= 10
+                    ? AppColors.orange
+                    : AppColors.text3;
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
@@ -478,15 +786,82 @@ class _LivePtsPreview extends StatelessWidget {
         children: [
           Container(
             width: 6, height: 6,
-            decoration: BoxDecoration(color: AppColors.red, shape: BoxShape.circle),
+            decoration: const BoxDecoration(color: AppColors.red, shape: BoxShape.circle),
           ),
           const SizedBox(width: 5),
           Text(
-            '+$pts pts',
+            '+$pts pts${penPts > 0 ? ' (incl. pens)' : ''}',
             style: TextStyle(
               fontSize: 11, fontWeight: FontWeight.w700, color: color,
             ),
           ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Penalty bonus prediction section for knockout matches in upcoming tab.
+class _PenaltyBonusSection extends StatelessWidget {
+  final String homeTeam;
+  final String awayTeam;
+  final int penHomeVal;
+  final int penAwayVal;
+  final Function(bool isHome, int delta) onStep;
+
+  const _PenaltyBonusSection({
+    required this.homeTeam,
+    required this.awayTeam,
+    required this.penHomeVal,
+    required this.penAwayVal,
+    required this.onStep,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        color: const Color(0x0F7C3AED),
+        border: const Border(top: BorderSide(color: Color(0x337C3AED))),
+        borderRadius: const BorderRadius.vertical(bottom: Radius.circular(16)),
+      ),
+      padding: const EdgeInsets.fromLTRB(14, 10, 14, 14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+                decoration: BoxDecoration(
+                  color: const Color(0x1A7C3AED),
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: const Text('⚡ PEN BONUS',
+                  style: TextStyle(fontSize: 9, fontWeight: FontWeight.w800,
+                      letterSpacing: 0.8, color: Color(0xFFA78BFA))),
+              ),
+              const SizedBox(width: 8),
+              const Text('Penalty shootout prediction',
+                style: TextStyle(fontSize: 12, color: AppColors.text2, fontWeight: FontWeight.w600)),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Expanded(child: Text(homeTeam,
+                style: const TextStyle(fontSize: 11, color: AppColors.text2, fontWeight: FontWeight.w600),
+                overflow: TextOverflow.ellipsis)),
+              _ScoreStepper(homeVal: penHomeVal, awayVal: penAwayVal, onStep: onStep),
+              Expanded(child: Text(awayTeam,
+                textAlign: TextAlign.right,
+                style: const TextStyle(fontSize: 11, color: AppColors.text2, fontWeight: FontWeight.w600),
+                overflow: TextOverflow.ellipsis)),
+            ],
+          ),
+          const SizedBox(height: 6),
+          const Text('If game goes to pens, same scoring rules apply.',
+            style: TextStyle(fontSize: 10, color: AppColors.text3)),
         ],
       ),
     );

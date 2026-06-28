@@ -8,6 +8,9 @@ import '../models/user_model.dart';
 import '../services/firestore_service.dart';
 import '../theme/app_theme.dart';
 
+const _kAiUserId = 'PIMT1Ovr0QPAc2FiNVLULeWbRWw2';
+const _kAiColor  = Color(0xFF00E5FF); // neon cyan — distinct from user palette
+
 // One distinct color per user (up to 8)
 const _kChartColors = [
   Color(0xFFC9A84C), // gold
@@ -48,16 +51,20 @@ class _AnalyticsScreenState extends State<AnalyticsScreen>
     with SingleTickerProviderStateMixin {
   late TabController _tabCtrl;
   late Future<_ChartData> _dataFuture;
+  late Future<_ChartData> _aiDataFuture;
   StreamSubscription? _leaderboardSub;
 
   @override
   void initState() {
     super.initState();
-    _tabCtrl = TabController(length: 2, vsync: this);
+    _tabCtrl = TabController(length: 3, vsync: this);
     _dataFuture = _loadData();
-    // Auto-refresh when scores are settled (leaderboard updates on every settle)
+    _aiDataFuture = _loadAiData();
     _leaderboardSub = FirestoreService().leaderboardStream().listen((_) {
-      if (mounted) setState(() => _dataFuture = _loadData());
+      if (mounted) setState(() {
+        _dataFuture = _loadData();
+        _aiDataFuture = _loadAiData();
+      });
     });
   }
 
@@ -80,12 +87,12 @@ class _AnalyticsScreenState extends State<AnalyticsScreen>
           matches: [], users: widget.users, runningTotals: {});
     }
 
-    // matchId → userId → pointsEarned
+    // matchId → userId → total points (regular + penalty bonus)
     final Map<String, Map<String, int>> matchUserPts = {};
     for (final pred in allPreds) {
       if (pred.result == PredictionResult.pending) continue;
       matchUserPts.putIfAbsent(pred.matchId, () => <String, int>{})[pred.userId] =
-          pred.pointsEarned ?? 0;
+          (pred.pointsEarned ?? 0) + (pred.penPointsEarned ?? 0);
     }
 
     // Build cumulative totals per user across matches in order
@@ -109,6 +116,59 @@ class _AnalyticsScreenState extends State<AnalyticsScreen>
       users: widget.users,
       runningTotals: totals,
     );
+  }
+
+  Future<_ChartData> _loadAiData() async {
+    final firestore = FirestoreService();
+    final allPreds = await firestore.fetchAllPredictions();
+    final finishedMatches = await firestore.fetchFinishedMatches();
+
+    if (finishedMatches.isEmpty) {
+      return _ChartData(matches: [], users: [], runningTotals: {});
+    }
+
+    // matchId → userId → total points
+    final Map<String, Map<String, int>> matchUserPts = {};
+    for (final pred in allPreds) {
+      if (pred.result == PredictionResult.pending) continue;
+      matchUserPts.putIfAbsent(pred.matchId, () => <String, int>{})[pred.userId] =
+          (pred.pointsEarned ?? 0) + (pred.penPointsEarned ?? 0);
+    }
+
+    // Find the first finished match where AI has a settled prediction
+    final aiMatchIds = allPreds
+        .where((p) => p.userId == _kAiUserId && p.result != PredictionResult.pending)
+        .map((p) => p.matchId)
+        .toSet();
+    final aiStartIdx = finishedMatches.indexWhere((m) => aiMatchIds.contains(m.id));
+    if (aiStartIdx < 0) return _ChartData(matches: [], users: [], runningTotals: {});
+
+    final croppedMatches = finishedMatches.sublist(aiStartIdx);
+
+    // Look up real AI display name from leaderboard before filtering
+    final existingAiUser = widget.users.where((u) => u.id == _kAiUserId).firstOrNull;
+    const aiUser = UserModel(
+      id: _kAiUserId, displayName: 'AI Model', email: '',
+      totalPoints: 0, predictionsCount: 0, exactCount: 0,
+      correctPlusOneCount: 0, correctResultCount: 0, oneScoreCount: 0, rank: 0,
+    );
+    final namedAiUser = existingAiUser ?? aiUser;
+    final regularUsers = widget.users.where((u) => u.id != _kAiUserId).toList();
+    final allUsers = [...regularUsers, namedAiUser];
+
+    // Build incremental totals from AI start
+    final Map<String, double> running = {for (final u in allUsers) u.id: 0.0};
+    final Map<String, List<double>> totals  = {for (final u in allUsers) u.id: []};
+
+    for (final match in croppedMatches) {
+      final userPts = matchUserPts[match.id] ?? {};
+      for (final u in allUsers) {
+        running[u.id] = (running[u.id] ?? 0) + (userPts[u.id] ?? 0);
+        totals[u.id]!.add(running[u.id]!);
+      }
+    }
+
+    return _ChartData(matches: croppedMatches, users: allUsers, runningTotals: totals);
   }
 
   @override
@@ -165,6 +225,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen>
             tabs: const [
               Tab(text: 'ABSOLUTE'),
               Tab(text: 'VS LEADER'),
+              Tab(text: 'VS AI'),
             ],
           ),
           Expanded(
@@ -205,6 +266,22 @@ class _AnalyticsScreenState extends State<AnalyticsScreen>
                   children: [
                     _ChartView(data: data, relative: false),
                     _ChartView(data: data, relative: true),
+                    FutureBuilder<_ChartData>(
+                      future: _aiDataFuture,
+                      builder: (_, aiSnap) {
+                        if (aiSnap.connectionState == ConnectionState.waiting) {
+                          return const Center(child: CircularProgressIndicator(color: AppColors.gold));
+                        }
+                        final aiData = aiSnap.data;
+                        if (aiData == null || aiData.isEmpty) {
+                          return const Center(
+                            child: Text('AI has no predictions yet',
+                              style: TextStyle(color: AppColors.text3, fontSize: 14)),
+                          );
+                        }
+                        return _ChartView(data: aiData, relative: false, aiUserId: _kAiUserId, vsUserId: _kAiUserId);
+                      },
+                    ),
                   ],
                 );
               },
@@ -219,8 +296,10 @@ class _AnalyticsScreenState extends State<AnalyticsScreen>
 class _ChartView extends StatefulWidget {
   final _ChartData data;
   final bool relative;
+  final String? aiUserId;
+  final String? vsUserId; // when set, Y-axis is relative to this user (they sit at 0)
 
-  const _ChartView({super.key, required this.data, required this.relative});
+  const _ChartView({super.key, required this.data, required this.relative, this.aiUserId, this.vsUserId});
 
   @override
   State<_ChartView> createState() => _ChartViewState();
@@ -228,7 +307,7 @@ class _ChartView extends StatefulWidget {
 
 class _ChartViewState extends State<_ChartView> {
   final _scrollCtrl = ScrollController();
-  int? _selectedIdx; // currently tapped match index
+  int? _selectedIdx;
 
   static const _colWidth = 90.0;
 
@@ -251,12 +330,19 @@ class _ChartViewState extends State<_ChartView> {
 
   List<FlSpot> _spots(String userId) {
     final totals = widget.data.runningTotals[userId] ?? [];
+    if (widget.vsUserId != null) {
+      final refTotals = widget.data.runningTotals[widget.vsUserId] ?? [];
+      return totals.asMap().entries.map((e) {
+        final refVal = e.key < refTotals.length ? refTotals[e.key] : 0.0;
+        return FlSpot(e.key.toDouble(), e.value - refVal);
+      }).toList();
+    }
     if (!widget.relative) {
       return totals.asMap().entries
           .map((e) => FlSpot(e.key.toDouble(), e.value))
           .toList();
     }
-    // Relative: each point minus the leader's total at that match
+    // VS Leader: relative to max at each point
     return totals.asMap().entries.map((e) {
       final idx = e.key;
       final leaderPts = widget.data.users
@@ -267,7 +353,19 @@ class _ChartViewState extends State<_ChartView> {
   }
 
   double get _maxY {
-    if (widget.relative) return 10; // leader is always 0, so max is ~0
+    if (widget.vsUserId != null) {
+      double maxVal = 20;
+      final refTotals = widget.data.runningTotals[widget.vsUserId] ?? [];
+      for (int i = 0; i < widget.data.matches.length; i++) {
+        final refVal = i < refTotals.length ? refTotals[i] : 0.0;
+        for (final u in widget.data.users) {
+          final v = (widget.data.runningTotals[u.id]?[i] ?? 0.0) - refVal;
+          if (v > maxVal) maxVal = v;
+        }
+      }
+      return (maxVal * 1.15).ceilToDouble();
+    }
+    if (widget.relative) return 10;
     final allTotals = widget.data.users
         .expand((u) => widget.data.runningTotals[u.id] ?? [0.0]);
     if (allTotals.isEmpty) return 100;
@@ -275,6 +373,18 @@ class _ChartViewState extends State<_ChartView> {
   }
 
   double get _minY {
+    if (widget.vsUserId != null) {
+      double minVal = -20;
+      final refTotals = widget.data.runningTotals[widget.vsUserId] ?? [];
+      for (int i = 0; i < widget.data.matches.length; i++) {
+        final refVal = i < refTotals.length ? refTotals[i] : 0.0;
+        for (final u in widget.data.users) {
+          final v = (widget.data.runningTotals[u.id]?[i] ?? 0.0) - refVal;
+          if (v < minVal) minVal = v;
+        }
+      }
+      return (minVal * 1.15).floorToDouble();
+    }
     if (!widget.relative) return 0;
     double minVal = 0;
     final n = widget.data.matches.length;
@@ -308,7 +418,7 @@ class _ChartViewState extends State<_ChartView> {
 
     return Column(
       children: [
-        _Legend(users: widget.data.users),
+        _Legend(users: widget.data.users, aiUserId: widget.aiUserId),
         Expanded(
           child: SingleChildScrollView(
             controller: _scrollCtrl,
@@ -320,7 +430,7 @@ class _ChartViewState extends State<_ChartView> {
                   child: LineChart(
                     LineChartData(
                       minX: 0,
-                      maxX: numMatches.toDouble(),
+                      maxX: numMatches > 1 ? (numMatches - 1).toDouble() : 1,
                       minY: _minY,
                       maxY: _maxY,
                       // No clipData — clipping was preventing tooltips from rendering
@@ -390,24 +500,31 @@ class _ChartViewState extends State<_ChartView> {
                     lineBarsData: widget.data.users.asMap().entries.map((entry) {
                       final idx = entry.key;
                       final user = entry.value;
-                      final color = _kChartColors[idx % _kChartColors.length];
+                      final isAi = user.id == widget.aiUserId;
+                      final color = isAi ? _kAiColor : _kChartColors[idx % _kChartColors.length];
                       return LineChartBarData(
                         spots: _spots(user.id),
                         color: color,
                         isCurved: true,
                         curveSmoothness: 0.25,
-                        barWidth: 2.5,
+                        barWidth: isAi ? 3.5 : 2,
                         isStrokeCapRound: true,
+                        shadow: isAi
+                            ? Shadow(color: _kAiColor.withOpacity(0.6), blurRadius: 12)
+                            : const Shadow(color: Colors.transparent, blurRadius: 0),
                         dotData: FlDotData(
                           show: true,
                           getDotPainter: (_, __, ___, ____) => FlDotCirclePainter(
-                            radius: 3.5,
+                            radius: isAi ? 5 : 3,
                             color: color,
-                            strokeWidth: 1.5,
+                            strokeWidth: isAi ? 2.5 : 1.5,
                             strokeColor: AppColors.bg,
                           ),
                         ),
-                        belowBarData: BarAreaData(show: false),
+                        belowBarData: BarAreaData(
+                          show: isAi,
+                          color: _kAiColor.withOpacity(0.06),
+                        ),
                       );
                     }).toList(),
                     lineTouchData: LineTouchData(
@@ -433,6 +550,8 @@ class _ChartViewState extends State<_ChartView> {
             matchIdx: _selectedIdx!,
             data: widget.data,
             relative: widget.relative,
+            aiUserId: widget.aiUserId,
+            vsUserId: widget.vsUserId,
           ),
       ],
     );
@@ -483,8 +602,9 @@ class _InitialsDotPainter extends FlDotPainter {
 
 class _Legend extends StatelessWidget {
   final List<UserModel> users;
+  final String? aiUserId;
 
-  const _Legend({required this.users});
+  const _Legend({required this.users, this.aiUserId});
 
   @override
   Widget build(BuildContext context) {
@@ -497,21 +617,34 @@ class _Legend extends StatelessWidget {
         spacing: 14,
         runSpacing: 6,
         children: users.asMap().entries.map((entry) {
-          final color = _kChartColors[entry.key % _kChartColors.length];
           final user = entry.value;
+          final isAi = user.id == aiUserId;
+          final color = isAi ? _kAiColor : _kChartColors[entry.key % _kChartColors.length];
           return Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Container(
-                width: 16, height: 3,
-                decoration: BoxDecoration(
-                  color: color, borderRadius: BorderRadius.circular(2)),
-              ),
+                        // AI line indicator: thicker solid segment to stand out
+              if (isAi)
+                Container(
+                  width: 18, height: 4,
+                  decoration: BoxDecoration(
+                    color: color,
+                    borderRadius: BorderRadius.circular(2),
+                    boxShadow: [BoxShadow(color: color.withOpacity(0.6), blurRadius: 6, spreadRadius: 1)],
+                  ),
+                )
+              else
+                Container(
+                  width: 16, height: 3,
+                  decoration: BoxDecoration(
+                    color: color, borderRadius: BorderRadius.circular(2)),
+                ),
               const SizedBox(width: 5),
               Text(
-                user.displayName.split(' ').first,
-                style: const TextStyle(
-                  fontSize: 11, fontWeight: FontWeight.w600, color: AppColors.text2),
+                isAi ? '🤖 ${user.displayName.split(' ').first}' : user.displayName.split(' ').first,
+                style: TextStyle(
+                  fontSize: 11, fontWeight: FontWeight.w600,
+                  color: isAi ? _kAiColor : AppColors.text2),
               ),
             ],
           );
@@ -528,11 +661,15 @@ class _MatchInfoPanel extends StatelessWidget {
   final int matchIdx;
   final _ChartData data;
   final bool relative;
+  final String? aiUserId;
+  final String? vsUserId;
 
   const _MatchInfoPanel({
     required this.matchIdx,
     required this.data,
     required this.relative,
+    this.aiUserId,
+    this.vsUserId,
   });
 
   @override
@@ -556,12 +693,17 @@ class _MatchInfoPanel extends StatelessWidget {
             .map((u) => data.runningTotals[u.id]?[matchIdx] ?? 0.0)
             .reduce(max);
         displayVal = cumulative - leaderPts;
+      } else if (vsUserId != null) {
+        final refVal = data.runningTotals[vsUserId]?[matchIdx] ?? 0.0;
+        displayVal = cumulative - refVal;
       } else {
         displayVal = cumulative;
       }
       return (
         user: user,
-        color: _kChartColors[i % _kChartColors.length],
+        color: i == data.users.length - 1 && user.id == aiUserId
+            ? _kAiColor
+            : _kChartColors[i % _kChartColors.length],
         displayVal: displayVal,
         matchPts: matchPts,
       );
@@ -600,7 +742,7 @@ class _MatchInfoPanel extends StatelessWidget {
             spacing: 10,
             runSpacing: 6,
             children: rows.map((r) {
-              final valStr = relative
+              final valStr = (relative || vsUserId != null)
                   ? '${r.displayVal >= 0 ? '+' : ''}${r.displayVal.toInt()}'
                   : '${r.displayVal.toInt()} pts';
               return Row(

@@ -144,7 +144,7 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
             ],
           ),
           content: const Text(
-            'Get a reminder 10 minutes before each match kicks off — so you never miss submitting your prediction.',
+            'Get a reminder 10 minutes before each match kicks off, so you never miss submitting your prediction.',
             style: TextStyle(color: AppColors.text2, fontSize: 14, height: 1.5),
           ),
           actions: [

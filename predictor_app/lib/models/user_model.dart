@@ -11,6 +11,7 @@ class UserModel {
   final int correctPlusOneCount;
   final int correctResultCount;
   final int oneScoreCount;
+  final int penBonusCount;
   final int rank;
   final bool isAdmin;
 
@@ -25,6 +26,7 @@ class UserModel {
     required this.correctPlusOneCount,
     required this.correctResultCount,
     required this.oneScoreCount,
+    this.penBonusCount = 0,
     required this.rank,
     this.isAdmin = false,
   });
@@ -59,6 +61,7 @@ class UserModel {
       correctPlusOneCount: d['correctPlusOneCount'] as int? ?? 0,
       correctResultCount: d['correctResultCount'] as int? ?? 0,
       oneScoreCount: d['oneScoreCount'] as int? ?? 0,
+      penBonusCount: d['penBonusCount'] as int? ?? 0,
       rank: d['rank'] as int? ?? 0,
       isAdmin: d['isAdmin'] as bool? ?? false,
     );
@@ -74,6 +77,7 @@ class UserModel {
     'correctPlusOneCount': correctPlusOneCount,
     'correctResultCount': correctResultCount,
     'oneScoreCount': oneScoreCount,
+    'penBonusCount': penBonusCount,
     'rank': rank,
   };
 }

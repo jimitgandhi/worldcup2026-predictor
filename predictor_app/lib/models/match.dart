@@ -17,6 +17,11 @@ class Match {
   final int? homeScore;
   final int? awayScore;
   final String? displayClock; // e.g. "67'"
+  final bool isKnockout;
+  final int? penaltyHomeScore; // penalty shootout score (e.g. 5)
+  final int? penaltyAwayScore;
+
+  bool get wentToPenalties => penaltyHomeScore != null && penaltyAwayScore != null;
 
   const Match({
     required this.id,
@@ -33,6 +38,9 @@ class Match {
     this.homeScore,
     this.awayScore,
     this.displayClock,
+    this.isKnockout = false,
+    this.penaltyHomeScore,
+    this.penaltyAwayScore,
   });
 
   bool get isPredictionOpen =>
@@ -62,6 +70,9 @@ class Match {
       homeScore: d['homeScore'] as int?,
       awayScore: d['awayScore'] as int?,
       displayClock: d['displayClock'] as String?,
+      isKnockout: d['isKnockout'] as bool? ?? false,
+      penaltyHomeScore: d['penaltyHomeScore'] as int?,
+      penaltyAwayScore: d['penaltyAwayScore'] as int?,
     );
   }
 
@@ -94,6 +105,13 @@ class Match {
       homeScore: int.tryParse(home['score']?.toString() ?? ''),
       awayScore: int.tryParse(away['score']?.toString() ?? ''),
       displayClock: statusObj['displayClock'] as String?,
+      // Knockout only if ESPN explicitly marks it as a knockout round
+      isKnockout: () {
+        final note = (competition['altGameNote'] as String? ?? '').toLowerCase();
+        return note.contains('round of') || note.contains('quarterfinal') ||
+               note.contains('semifinal') || note.contains('final') ||
+               note.contains('3rd place') || note.contains('third place');
+      }(),
     );
   }
 
@@ -108,8 +126,11 @@ class Match {
     'venue': venue,
     'kickoff': Timestamp.fromDate(kickoff),
     'status': status.name,
+    'isKnockout': isKnockout,
     if (homeScore != null) 'homeScore': homeScore,
     if (awayScore != null) 'awayScore': awayScore,
     if (displayClock != null) 'displayClock': displayClock,
+    if (penaltyHomeScore != null) 'penaltyHomeScore': penaltyHomeScore,
+    if (penaltyAwayScore != null) 'penaltyAwayScore': penaltyAwayScore,
   };
 }

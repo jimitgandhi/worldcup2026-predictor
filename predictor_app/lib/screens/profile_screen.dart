@@ -309,6 +309,10 @@ class _BreakdownBar extends StatelessWidget {
           _Bar('One Score',       AppColors.orange, frac(model.oneScoreCount),        model.oneScoreCount),
           const SizedBox(height: 8),
           _Bar('Wrong',           AppColors.text3,  frac(wrongCount.clamp(0, total)), wrongCount.clamp(0, total)),
+          if (model.penBonusCount > 0) ...[
+            const SizedBox(height: 8),
+            _Bar('⚡ Pen Bonus',   const Color(0xFF7C3AED), frac(model.penBonusCount), model.penBonusCount),
+          ],
         ],
       ),
     );
@@ -412,13 +416,17 @@ class _PredRow extends StatelessWidget {
                   style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
                   overflow: TextOverflow.ellipsis,
                 ),
-                Text('Your pick: ${prediction.homeScore} – ${prediction.awayScore}',
+                Text('Your pick: ${prediction.homeScore} – ${prediction.awayScore}${prediction.penHome != null ? '  ·  Pens: ${prediction.penHome}–${prediction.penAway}' : ''}',
                   style: const TextStyle(fontSize: 11, color: AppColors.text2)),
               ],
             ),
           ),
           const SizedBox(width: 8),
-          ResultChip(result: prediction.result, points: prediction.pointsEarned),
+          ResultChip(
+            result: prediction.result,
+            points: (prediction.pointsEarned ?? 0) + (prediction.penPointsEarned ?? 0),
+            hasPenBonus: prediction.penResult != null,
+          ),
         ],
       ),
     );

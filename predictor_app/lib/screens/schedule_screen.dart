@@ -180,7 +180,7 @@ class _ScheduleScreenState extends State<ScheduleScreen>
     return merged;
   }
 
-  Future<void> _submitPrediction(Match match, int home, int away) async {
+  Future<void> _submitPrediction(Match match, int home, int away, int? penHome, int? penAway) async {
     await _firestore.submitPrediction(
       userId: _user.uid,
       matchId: match.id,
@@ -189,6 +189,8 @@ class _ScheduleScreenState extends State<ScheduleScreen>
       homeTeam: match.homeTeam,
       awayTeam: match.awayTeam,
       kickoff: match.kickoff,
+      penHome: penHome,
+      penAway: penAway,
     );
   }
 
@@ -237,7 +239,7 @@ class _ScheduleScreenState extends State<ScheduleScreen>
             match: m,
             prediction: _predictions[m.id],
             onSubmit: (canSubmit && m.isPredictionOpen)
-                ? (h, a) => _submitPrediction(m, h, a)
+                ? (h, a, ph, pa) => _submitPrediction(m, h, a, ph, pa)
                 : null,
           );
           if (showPredictions && _users.isNotEmpty) {
@@ -387,9 +389,11 @@ class _LivePredictionsPanelState extends State<_LivePredictionsPanel> {
                     user: user,
                     prediction: predMap[user.id],
                     compact: true,
-                      liveHome: widget.match.homeScore,
-                      liveAway: widget.match.awayScore,
-                    )).toList(),
+                    liveHome: widget.match.homeScore,
+                    liveAway: widget.match.awayScore,
+                    livePenHome: widget.match.penaltyHomeScore,
+                    livePenAway: widget.match.penaltyAwayScore,
+                  )).toList(),
                 ),
               ),
             ],

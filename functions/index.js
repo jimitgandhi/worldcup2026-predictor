@@ -45,7 +45,7 @@ function calcResult(predHome, predAway, actualHome, actualAway) {
   return { result: 'wrong', points: POINTS.wrong };
 }
 
-async function settleMatch(matchId, homeScore, awayScore) {
+async function settleMatch(matchId, homeScore, awayScore, penaltyHome = null, penaltyAway = null) {
   // Guard: check if already settled in Firestore
   const matchRef = db.collection('matches').doc(matchId);
   const matchDoc = await matchRef.get();
@@ -64,6 +64,8 @@ async function settleMatch(matchId, homeScore, awayScore) {
     return true;
   }
 
+  const wentToPenalties = penaltyHome != null && penaltyAway != null;
+
   // Batch all writes (≤10 users = ≤21 ops — well under 500 limit)
   const batch = db.batch();
 
@@ -73,22 +75,42 @@ async function settleMatch(matchId, homeScore, awayScore) {
       d.homeScore, d.awayScore, homeScore, awayScore
     );
 
-    batch.update(doc.ref, { pointsEarned: points, result });
+    let penPoints = 0;
+    let penResult = null;
+    if (wentToPenalties && d.penHome != null && d.penAway != null) {
+      const pen = calcResult(d.penHome, d.penAway, penaltyHome, penaltyAway);
+      penPoints = pen.points;
+      penResult = pen.result;
+    }
+
+    const totalPoints = points + penPoints;
+    const predUpdate = { pointsEarned: points, result };
+    if (wentToPenalties) {
+      predUpdate.penPointsEarned = penPoints;
+      if (penResult) predUpdate.penResult = penResult;
+    }
+    batch.update(doc.ref, predUpdate);
 
     const userRef = db.collection('users').doc(d.userId);
     const userUpdate = {
-      totalPoints: admin.firestore.FieldValue.increment(points),
+      totalPoints: admin.firestore.FieldValue.increment(totalPoints),
       predictionsCount: admin.firestore.FieldValue.increment(1),
     };
     if (result === 'exact')          userUpdate.exactCount          = admin.firestore.FieldValue.increment(1);
     if (result === 'correctPlusOne') userUpdate.correctPlusOneCount = admin.firestore.FieldValue.increment(1);
     if (result === 'correctResult')  userUpdate.correctResultCount  = admin.firestore.FieldValue.increment(1);
     if (result === 'oneScore')       userUpdate.oneScoreCount       = admin.firestore.FieldValue.increment(1);
+    if (penPoints > 0)               userUpdate.penBonusCount       = admin.firestore.FieldValue.increment(1);
     batch.update(userRef, userUpdate);
   }
 
   // Mark match settled
-  batch.set(matchRef, { status: 'finished', homeScore, awayScore }, { merge: true });
+  const matchUpdate = { status: 'finished', homeScore, awayScore };
+  if (wentToPenalties) {
+    matchUpdate.penaltyHomeScore = penaltyHome;
+    matchUpdate.penaltyAwayScore = penaltyAway;
+  }
+  batch.set(matchRef, matchUpdate, { merge: true });
   await batch.commit();
 
   // Write post-match notifications (non-critical, separate batch)
@@ -97,6 +119,11 @@ async function settleMatch(matchId, homeScore, awayScore) {
     for (const doc of preds.docs) {
       const d = doc.data();
       const { result, points } = calcResult(d.homeScore, d.awayScore, homeScore, awayScore);
+      let penPoints = 0;
+      if (wentToPenalties && d.penHome != null && d.penAway != null) {
+        const pen = calcResult(d.penHome, d.penAway, penaltyHome, penaltyAway);
+        penPoints = pen.points;
+      }
       notifBatch.set(db.collection('notifications').doc(`${d.userId}_${matchId}`), {
         userId: d.userId,
         matchId,
@@ -107,7 +134,7 @@ async function settleMatch(matchId, homeScore, awayScore) {
         predHome: d.homeScore,
         predAway: d.awayScore,
         result,
-        pointsEarned: points,
+        pointsEarned: points + penPoints,
         read: false,
         createdAt: admin.firestore.FieldValue.serverTimestamp(),
       });

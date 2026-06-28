@@ -11,6 +11,11 @@ class NotificationService {
   static final _plugin = FlutterLocalNotificationsPlugin();
   static bool _initialized = false;
 
+  // Concurrency guard: only one scheduleMatchReminders runs at a time.
+  // If called while busy, the latest match list is queued for a follow-up run.
+  static bool _scheduling = false;
+  static List<Match>? _pendingScheduleMatches;
+
   static const _channelId = 'match_reminders';
   static const _channelName = 'Match Reminders';
   static const _channelDesc = 'Reminder 10 minutes before each match';
@@ -78,6 +83,28 @@ class NotificationService {
   static Future<void> scheduleMatchReminders(
     List<Match> matches,
   ) async {
+    // If already running, queue the latest match list and return.
+    // The in-flight call will pick up _pendingScheduleMatches when it finishes.
+    if (_scheduling) {
+      _pendingScheduleMatches = matches;
+      return;
+    }
+    _scheduling = true;
+    _pendingScheduleMatches = null;
+    try {
+      await _doSchedule(matches);
+    } finally {
+      _scheduling = false;
+      final pending = _pendingScheduleMatches;
+      _pendingScheduleMatches = null;
+      if (pending != null) {
+        // Run once more with the latest state (no further recursion — _scheduling is false here)
+        await scheduleMatchReminders(pending);
+      }
+    }
+  }
+
+  static Future<void> _doSchedule(List<Match> matches) async {
     // Only cancel the specific reminder IDs we manage — never touch post-match
     // or other notifications that may have just fired
     final reminderIds = matches
@@ -97,7 +124,7 @@ class NotificationService {
       final tzTime = tz.TZDateTime.from(reminderTime, tz.local);
       final notifId = match.id.hashCode.abs() % 2000000000;
       final kickoffStr = DateFormat('h:mm a').format(match.kickoff);
-      final body = '⏱️ Last chance! Kicks off at $kickoffStr — lock in your prediction 🔒';
+      final body = '⏱️ Last chance! Kicks off at $kickoffStr - lock in your prediction 🔒';
 
       const details = NotificationDetails(
         android: AndroidNotificationDetails(
@@ -202,6 +229,64 @@ class NotificationService {
   /// callback never fires (only getNotificationAppLaunchDetails runs).
   static void fireNavigation(String? payload) {
     _tapController.add(payload ?? 'schedule');
+  }
+
+  /// Schedules a test notification 30 seconds from now using zonedSchedule.
+  /// If this fires → scheduled alarms work on the device.
+  /// If it doesn't fire → exact alarm permission is blocked (check Settings → Alarms & Reminders).
+  static Future<String> scheduleTestReminder() async {
+    final when = tz.TZDateTime.from(
+      DateTime.now().add(const Duration(seconds: 30)),
+      tz.local,
+    );
+    const details = NotificationDetails(
+      android: AndroidNotificationDetails(
+        _channelId, _channelName,
+        channelDescription: _channelDesc,
+        importance: Importance.high,
+        priority: Priority.high,
+        icon: '@mipmap/ic_launcher',
+        enableVibration: true,
+      ),
+      iOS: DarwinNotificationDetails(
+        presentAlert: true, presentBadge: true, presentSound: true,
+      ),
+    );
+    try {
+      await _plugin.zonedSchedule(
+        999998,
+        '⚽ Scheduled Test (exact)',
+        '✅ zonedSchedule works! Exact alarm fired 30s after tap.',
+        when,
+        details,
+        androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+        uiLocalNotificationDateInterpretation:
+            UILocalNotificationDateInterpretation.absoluteTime,
+        payload: 'schedule',
+      );
+      return 'exact';
+    } catch (_) {
+      try {
+        await _plugin.zonedSchedule(
+          999998,
+          '⚽ Scheduled Test (inexact)',
+          '⚠️ Exact alarm denied — using inexact. May be delayed by Doze mode.',
+          when,
+          details,
+          androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
+          uiLocalNotificationDateInterpretation:
+              UILocalNotificationDateInterpretation.absoluteTime,
+          payload: 'schedule',
+        );
+        return 'inexact';
+      } catch (e) {
+        return 'failed: $e';
+      }
+    }
+  }
+
+  static Future<List<PendingNotificationRequest>> getPendingNotifications() async {
+    return _plugin.pendingNotificationRequests();
   }
 
   static Future<int> pendingCount() async {
