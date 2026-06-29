@@ -68,15 +68,18 @@ class AuthGate extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<User?>(
+      // Use synchronous currentUser as initialData so a cached session never
+      // flashes the LoginScreen while authStateChanges() is loading on cold start.
+      initialData: FirebaseAuth.instance.currentUser,
       stream: FirebaseAuth.instance.authStateChanges(),
       builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
+        if (snapshot.connectionState == ConnectionState.waiting && snapshot.data == null) {
           return const Scaffold(
             backgroundColor: AppColors.bg,
             body: Center(child: CircularProgressIndicator(color: AppColors.gold)),
           );
         }
-        if (snapshot.hasData && snapshot.data != null) {
+        if (snapshot.data != null) {
           return const HomeShell();
         }
         return const LoginScreen();
