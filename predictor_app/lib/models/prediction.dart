@@ -22,6 +22,9 @@ class Prediction {
   final int? penPointsEarned;
   final PredictionResult? penResult;
 
+  // Double Down — points doubled for this match
+  final bool isDoubleDown;
+
   const Prediction({
     required this.id,
     required this.userId,
@@ -38,6 +41,7 @@ class Prediction {
     this.penAway,
     this.penPointsEarned,
     this.penResult,
+    this.isDoubleDown = false,
   });
 
   static String makeId(String userId, String matchId) => '${userId}_$matchId';
@@ -78,6 +82,7 @@ class Prediction {
       penAway: d['penAway'] as int?,
       penPointsEarned: d['penPointsEarned'] as int?,
       penResult: penResult,
+      isDoubleDown: d['isDoubleDown'] as bool? ?? false,
     );
   }
 
@@ -96,5 +101,6 @@ class Prediction {
     if (penAway != null) 'penAway': penAway,
     if (penPointsEarned != null) 'penPointsEarned': penPointsEarned,
     if (penResult != null) 'penResult': penResult!.name,
+    if (isDoubleDown) 'isDoubleDown': true,
   };
 }

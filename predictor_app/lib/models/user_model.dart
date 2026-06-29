@@ -14,6 +14,7 @@ class UserModel {
   final int penBonusCount;
   final int rank;
   final bool isAdmin;
+  final String? doubleDownMatchId;
 
   const UserModel({
     required this.id,
@@ -29,6 +30,7 @@ class UserModel {
     this.penBonusCount = 0,
     required this.rank,
     this.isAdmin = false,
+    this.doubleDownMatchId,
   });
 
   /// Result Hit Rate: % of predictions where the match outcome (W/D/L) was correct.
@@ -64,6 +66,7 @@ class UserModel {
       penBonusCount: d['penBonusCount'] as int? ?? 0,
       rank: d['rank'] as int? ?? 0,
       isAdmin: d['isAdmin'] as bool? ?? false,
+      doubleDownMatchId: d['doubleDownMatchId'] as String?,
     );
   }
 

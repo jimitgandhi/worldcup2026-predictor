@@ -10,12 +10,22 @@ class MatchCard extends StatefulWidget {
   final Match match;
   final Prediction? prediction;
   final Future<void> Function(int home, int away, int? penHome, int? penAway)? onSubmit;
+  final Future<void> Function(int penHome, int penAway)? onSubmitPen;
+
+  /// Double Down feature
+  final bool isDoubleDown;     // this match has DD active for the current user
+  final bool canEnableDoubleDown; // user hasn't used DD on any match yet
+  final VoidCallback? onDoubleDown; // called to enable DD on this match
 
   const MatchCard({
     super.key,
     required this.match,
     this.prediction,
     this.onSubmit,
+    this.onSubmitPen,
+    this.isDoubleDown = false,
+    this.canEnableDoubleDown = false,
+    this.onDoubleDown,
   });
 
   @override
@@ -33,6 +43,12 @@ class _MatchCardState extends State<MatchCard> {
   int _penAwayVal = 0;
   bool _penModified = false; // true once user touches the pen stepper or has a saved pen pred
 
+  // Live pen update state (separate from main prediction)
+  int _livePenHomeVal = 1;
+  int _livePenAwayVal = 0;
+  bool _livePenSaved = false;
+  bool _livePenSubmitting = false;
+
   @override
   void initState() {
     super.initState();
@@ -44,7 +60,10 @@ class _MatchCardState extends State<MatchCard> {
       if (p.penHome != null && p.penAway != null) {
         _penHomeVal = p.penHome!;
         _penAwayVal = p.penAway!;
-        _penModified = true; // existing pen prediction counts as intentional
+        _penModified = true;
+        _livePenHomeVal = p.penHome!;
+        _livePenAwayVal = p.penAway!;
+        _livePenSaved = true;
       }
     }
   }
@@ -62,6 +81,9 @@ class _MatchCardState extends State<MatchCard> {
         _penHomeVal = p!.penHome!;
         _penAwayVal = p.penAway!;
         _penModified = true;
+        _livePenHomeVal = p.penHome!;
+        _livePenAwayVal = p.penAway!;
+        _livePenSaved = true;
       }
     }
   }
@@ -95,17 +117,29 @@ class _MatchCardState extends State<MatchCard> {
     final showScore = match.status != MatchStatus.upcoming;
     final canPredict = match.isPredictionOpen && widget.onSubmit != null;
     final hasPrediction = widget.prediction != null;
+    final isPenOpen = match.isPenPredictionOpen && widget.onSubmitPen != null && hasPrediction;
 
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
       decoration: BoxDecoration(
         color: AppColors.card,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: AppColors.border),
+        border: Border.all(
+          color: widget.isDoubleDown ? const Color(0xFF3B82F6) : AppColors.border,
+          width: widget.isDoubleDown ? 1.5 : 1,
+        ),
+        boxShadow: widget.isDoubleDown
+            ? [BoxShadow(color: const Color(0xFF3B82F6).withOpacity(0.22), blurRadius: 18, spreadRadius: 1)]
+            : null,
       ),
       child: Column(
         children: [
-          _Header(match: match),
+          _Header(
+            match: match,
+            isDoubleDown: widget.isDoubleDown,
+            canEnableDoubleDown: widget.canEnableDoubleDown,
+            onDoubleDown: (canPredict || widget.isDoubleDown) ? widget.onDoubleDown : null,
+          ),
           _Body(
             match: match,
             showScore: showScore,
@@ -127,12 +161,12 @@ class _MatchCardState extends State<MatchCard> {
               penAwayVal: _penAwayVal,
               saved: _saved,
               submitting: _submitting,
+              isDoubleDown: widget.isDoubleDown,
               onSubmit: () async {
                 setState(() => _submitting = true);
                 try {
                   await widget.onSubmit!(
                     _homeVal, _awayVal,
-                    // Only send pen prediction if user has actively set it
                     match.isKnockout && _penModified ? _penHomeVal : null,
                     match.isKnockout && _penModified ? _penAwayVal : null,
                   );
@@ -150,6 +184,40 @@ class _MatchCardState extends State<MatchCard> {
                   }
                 }
               },
+              // Live pen update
+              isPenOpen: isPenOpen,
+              livePenHomeVal: _livePenHomeVal,
+              livePenAwayVal: _livePenAwayVal,
+              livePenSaved: _livePenSaved,
+              livePenSubmitting: _livePenSubmitting,
+              onStepLivePen: isPenOpen ? (isHome, delta) {
+                setState(() {
+                  if (isHome) {
+                    _livePenHomeVal = (_livePenHomeVal + delta).clamp(0, 20);
+                  } else {
+                    _livePenAwayVal = (_livePenAwayVal + delta).clamp(0, 20);
+                  }
+                  _livePenSaved = false;
+                });
+              } : null,
+              onSubmitLivePen: isPenOpen ? () async {
+                setState(() => _livePenSubmitting = true);
+                try {
+                  await widget.onSubmitPen!(_livePenHomeVal, _livePenAwayVal);
+                  if (mounted) setState(() { _livePenSaved = true; _livePenSubmitting = false; });
+                } catch (_) {
+                  if (mounted) {
+                    setState(() => _livePenSubmitting = false);
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        backgroundColor: Color(0xFF7F1D1D),
+                        content: Text('Failed to update pen prediction.',
+                          style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600)),
+                      ),
+                    );
+                  }
+                }
+              } : null,
             ),
         ],
       ),
@@ -159,7 +227,16 @@ class _MatchCardState extends State<MatchCard> {
 
 class _Header extends StatelessWidget {
   final Match match;
-  const _Header({required this.match});
+  final bool isDoubleDown;
+  final bool canEnableDoubleDown;
+  final VoidCallback? onDoubleDown;
+
+  const _Header({
+    required this.match,
+    this.isDoubleDown = false,
+    this.canEnableDoubleDown = false,
+    this.onDoubleDown,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -185,6 +262,36 @@ class _Header extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 8),
+          // Double Down button
+          if (isDoubleDown || canEnableDoubleDown) ...[
+            GestureDetector(
+              onTap: onDoubleDown,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                decoration: BoxDecoration(
+                  color: isDoubleDown
+                      ? const Color(0xFF3B82F6).withOpacity(0.18)
+                      : AppColors.cardRaised,
+                  borderRadius: BorderRadius.circular(100),
+                  border: Border.all(
+                    color: isDoubleDown ? const Color(0xFF3B82F6) : AppColors.border,
+                  ),
+                  boxShadow: isDoubleDown
+                      ? [BoxShadow(color: const Color(0xFF3B82F6).withOpacity(0.35), blurRadius: 8)]
+                      : null,
+                ),
+                child: Text(
+                  isDoubleDown ? '⚡ 2×' : '2×',
+                  style: TextStyle(
+                    fontSize: 10, fontWeight: FontWeight.w800,
+                    color: isDoubleDown ? const Color(0xFF60A5FA) : AppColors.text3,
+                    letterSpacing: 0.2,
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(width: 7),
+          ],
           StatusBadge(
             status: match.status,
             clock: match.displayClock,
@@ -444,7 +551,17 @@ class _Footer extends StatelessWidget {
   final int penAwayVal;
   final bool saved;
   final bool submitting;
+  final bool isDoubleDown;
   final VoidCallback onSubmit;
+
+  // Live pen update params
+  final bool isPenOpen;
+  final int livePenHomeVal;
+  final int livePenAwayVal;
+  final bool livePenSaved;
+  final bool livePenSubmitting;
+  final Function(bool isHome, int delta)? onStepLivePen;
+  final VoidCallback? onSubmitLivePen;
 
   const _Footer({
     required this.match,
@@ -456,7 +573,15 @@ class _Footer extends StatelessWidget {
     required this.penAwayVal,
     required this.saved,
     required this.submitting,
+    required this.isDoubleDown,
     required this.onSubmit,
+    this.isPenOpen = false,
+    this.livePenHomeVal = 1,
+    this.livePenAwayVal = 0,
+    this.livePenSaved = false,
+    this.livePenSubmitting = false,
+    this.onStepLivePen,
+    this.onSubmitLivePen,
   });
 
   @override
@@ -472,8 +597,7 @@ class _Footer extends StatelessWidget {
       return _SubmitBarFull(saved: saved, submitting: submitting, onSubmit: onSubmit);
     }
 
-    // Non-predict layout (result / settled / no prediction) — unchanged
-    return Container(
+    final mainRow = Container(
       padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
       decoration: const BoxDecoration(
         border: Border(top: BorderSide(color: AppColors.border)),
@@ -485,9 +609,26 @@ class _Footer extends StatelessWidget {
             Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text('Your pick',
-                  style: TextStyle(fontSize: 10, color: AppColors.text3,
-                      fontWeight: FontWeight.w600, letterSpacing: 0.3)),
+                Row(
+                  children: [
+                    const Text('Your pick',
+                      style: TextStyle(fontSize: 10, color: AppColors.text3,
+                          fontWeight: FontWeight.w600, letterSpacing: 0.3)),
+                    if (isDoubleDown) ...[
+                      const SizedBox(width: 5),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF3B82F6).withOpacity(0.18),
+                          borderRadius: BorderRadius.circular(100),
+                          border: Border.all(color: const Color(0xFF3B82F6).withOpacity(0.5)),
+                        ),
+                        child: const Text('⚡ 2×',
+                          style: TextStyle(fontSize: 9, fontWeight: FontWeight.w800, color: Color(0xFF60A5FA))),
+                      ),
+                    ],
+                  ],
+                ),
                 const SizedBox(height: 2),
                 Text(
                   '${prediction!.homeScore} – ${prediction!.awayScore}',
@@ -522,28 +663,12 @@ class _Footer extends StatelessWidget {
             Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                ResultChip(
-                  result: prediction!.result,
-                  points: prediction!.pointsEarned ?? 0,
+                _SettledPoints(
+                  prediction: prediction!,
+                  totalPoints: totalPoints,
+                  hasPenBonus: hasPenBonus,
+                  isDoubleDown: isDoubleDown,
                 ),
-                if (hasPenBonus) ...[
-                  const SizedBox(width: 6),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: const Color(0x1A7C3AED),
-                      borderRadius: BorderRadius.circular(20),
-                      border: Border.all(color: const Color(0x337C3AED)),
-                    ),
-                    child: Text(
-                      '⚡ +${prediction!.penPointsEarned ?? 0}',
-                      style: const TextStyle(
-                        fontSize: 11, fontWeight: FontWeight.w700,
-                        color: Color(0xFFA78BFA),
-                      ),
-                    ),
-                  ),
-                ],
               ],
             )
           else if (hasPrediction && isFinishedOrLive) ...[
@@ -556,6 +681,7 @@ class _Footer extends StatelessWidget {
                 wentToPenalties: match.wentToPenalties,
                 livePenHome: match.penaltyHomeScore,
                 livePenAway: match.penaltyAwayScore,
+                isDoubleDown: isDoubleDown,
               )
             else
               ResultChip(result: PredictionResult.pending, points: 0),
@@ -573,6 +699,90 @@ class _Footer extends StatelessWidget {
             ),
         ],
       ),
+    );
+
+    if (!isPenOpen) return mainRow;
+
+    // Live pen update section
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        mainRow,
+        Container(
+          margin: const EdgeInsets.fromLTRB(14, 0, 14, 14),
+          padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
+          decoration: BoxDecoration(
+            color: const Color(0x0F7C3AED),
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: const Color(0x337C3AED)),
+          ),
+          child: Column(
+            children: [
+              const Text('⚡ UPDATE PEN PREDICTION',
+                style: TextStyle(fontSize: 8, fontWeight: FontWeight.w800,
+                  letterSpacing: 0.8, color: Color(0xFFA78BFA))),
+              const SizedBox(height: 10),
+              Row(
+                children: [
+                  Expanded(
+                    child: Center(
+                      child: _SingleStepper(
+                        value: livePenHomeVal,
+                        onStep: (d) => onStepLivePen!(true, d),
+                        accentColor: const Color(0xFF7C3AED),
+                        small: true,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(
+                    width: 56,
+                    child: Center(
+                      child: Text('–', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: Color(0xFF7C6BAA))),
+                    ),
+                  ),
+                  Expanded(
+                    child: Center(
+                      child: _SingleStepper(
+                        value: livePenAwayVal,
+                        onStep: (d) => onStepLivePen!(false, d),
+                        accentColor: const Color(0xFF7C3AED),
+                        small: true,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              GestureDetector(
+                onTap: (livePenSaved || livePenSubmitting) ? null : onSubmitLivePen,
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 200),
+                  height: 36,
+                  decoration: BoxDecoration(
+                    color: livePenSaved
+                        ? const Color(0x1A7C3AED)
+                        : livePenSubmitting
+                            ? AppColors.cardRaised
+                            : const Color(0xFF7C3AED),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: const Color(0xFF7C3AED).withOpacity(livePenSaved ? 0.4 : 0.8)),
+                  ),
+                  alignment: Alignment.center,
+                  child: livePenSubmitting
+                      ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFFA78BFA)))
+                      : Text(
+                          livePenSaved ? '✓ Pen prediction saved' : 'Save pen prediction',
+                          style: TextStyle(
+                            fontSize: 12, fontWeight: FontWeight.w700,
+                            color: livePenSaved ? const Color(0xFF7C3AED) : Colors.white,
+                          ),
+                        ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 }
@@ -834,6 +1044,71 @@ class _SubmitBtnTall extends StatelessWidget {
   }
 }
 
+/// Settled result chips — shows main ResultChip + optional pen bonus chip + optional 2× badge.
+class _SettledPoints extends StatelessWidget {
+  final Prediction prediction;
+  final int totalPoints;
+  final bool hasPenBonus;
+  final bool isDoubleDown;
+
+  const _SettledPoints({
+    required this.prediction,
+    required this.totalPoints,
+    required this.hasPenBonus,
+    required this.isDoubleDown,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        ResultChip(
+          result: prediction.result,
+          points: prediction.pointsEarned ?? 0,
+        ),
+        if (hasPenBonus) ...[
+          const SizedBox(width: 6),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 4),
+            decoration: BoxDecoration(
+              color: const Color(0x1A7C3AED),
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: const Color(0x337C3AED)),
+            ),
+            child: Text(
+              '⚡ +${prediction.penPointsEarned ?? 0}',
+              style: const TextStyle(
+                fontSize: 11, fontWeight: FontWeight.w700,
+                color: Color(0xFFA78BFA),
+              ),
+            ),
+          ),
+        ],
+        if (isDoubleDown) ...[
+          const SizedBox(width: 6),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 4),
+            decoration: BoxDecoration(
+              color: const Color(0xFF3B82F6).withOpacity(0.15),
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: const Color(0xFF3B82F6).withOpacity(0.4)),
+              boxShadow: [BoxShadow(color: const Color(0xFF3B82F6).withOpacity(0.2), blurRadius: 6)],
+            ),
+            child: Text(
+              '2× = ${(prediction.pointsEarned ?? 0) + (prediction.penPointsEarned ?? 0)}',
+              style: const TextStyle(
+                fontSize: 11, fontWeight: FontWeight.w800,
+                color: Color(0xFF60A5FA),
+              ),
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+}
+
 /// Shows a live pts preview — what the user would earn if the current live score is final.
 class _LivePtsPreview extends StatelessWidget {
   final Prediction prediction;
@@ -842,6 +1117,7 @@ class _LivePtsPreview extends StatelessWidget {
   final bool wentToPenalties;
   final int? livePenHome;
   final int? livePenAway;
+  final bool isDoubleDown;
 
   const _LivePtsPreview({
     required this.prediction,
@@ -850,6 +1126,7 @@ class _LivePtsPreview extends StatelessWidget {
     this.wentToPenalties = false,
     this.livePenHome,
     this.livePenAway,
+    this.isDoubleDown = false,
   });
 
   @override
@@ -864,7 +1141,7 @@ class _LivePtsPreview extends StatelessWidget {
     int penPts = 0;
     if (wentToPenalties && livePenHome != null && livePenAway != null
         && prediction.penHome != null && prediction.penAway != null) {
-      penPts = ScoringService.calculate(
+      penPts = ScoringService.calculatePen(
         predHome: prediction.penHome!,
         predAway: prediction.penAway!,
         actualHome: livePenHome!,
@@ -872,7 +1149,8 @@ class _LivePtsPreview extends StatelessWidget {
       ).points;
     }
 
-    final pts = scored.points + penPts;
+    final rawPts = scored.points + penPts;
+    final pts = isDoubleDown ? rawPts * 2 : rawPts;
     final color = pts >= 80
         ? AppColors.green
         : pts >= 50
@@ -886,9 +1164,10 @@ class _LivePtsPreview extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.1),
+        color: isDoubleDown ? const Color(0xFF3B82F6).withOpacity(0.12) : color.withOpacity(0.1),
         borderRadius: BorderRadius.circular(100),
-        border: Border.all(color: color.withOpacity(0.3)),
+        border: Border.all(color: isDoubleDown ? const Color(0xFF3B82F6).withOpacity(0.4) : color.withOpacity(0.3)),
+        boxShadow: isDoubleDown ? [BoxShadow(color: const Color(0xFF3B82F6).withOpacity(0.2), blurRadius: 6)] : null,
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -899,9 +1178,10 @@ class _LivePtsPreview extends StatelessWidget {
           ),
           const SizedBox(width: 5),
           Text(
-            '+$pts pts${penPts > 0 ? ' (incl. pens)' : ''}',
+            isDoubleDown ? '⚡ 2× +$pts pts' : '+$pts pts${penPts > 0 ? ' (incl. pens)' : ''}',
             style: TextStyle(
-              fontSize: 11, fontWeight: FontWeight.w700, color: color,
+              fontSize: 11, fontWeight: FontWeight.w700,
+              color: isDoubleDown ? const Color(0xFF60A5FA) : color,
             ),
           ),
         ],

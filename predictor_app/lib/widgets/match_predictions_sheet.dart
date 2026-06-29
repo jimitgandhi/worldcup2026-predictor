@@ -158,6 +158,8 @@ class MatchPredictionsSheet extends StatelessWidget {
                     return PredTile(
                       user: sorted[i],
                       prediction: predMap[sorted[i].id],
+                      isDoubleDown: sorted[i].doubleDownMatchId == match.id ||
+                          (predMap[sorted[i].id]?.isDoubleDown ?? false),
                     );
                   },
                 );
@@ -180,6 +182,7 @@ class PredTile extends StatelessWidget {
   final int? liveAway;
   final int? livePenHome;
   final int? livePenAway;
+  final bool isDoubleDown;
 
   const PredTile({
     super.key,
@@ -190,6 +193,7 @@ class PredTile extends StatelessWidget {
     this.liveAway,
     this.livePenHome,
     this.livePenAway,
+    this.isDoubleDown = false,
   });
 
   @override
@@ -205,9 +209,14 @@ class PredTile extends StatelessWidget {
         vertical: compact ? 8 : 11,
       ),
       decoration: BoxDecoration(
-        color: AppColors.card,
+        color: isDoubleDown ? const Color(0xFF3B82F6).withOpacity(0.08) : AppColors.card,
         borderRadius: BorderRadius.circular(compact ? 10 : 12),
-        border: Border.all(color: AppColors.border),
+        border: Border.all(
+          color: isDoubleDown ? const Color(0xFF3B82F6).withOpacity(0.4) : AppColors.border,
+        ),
+        boxShadow: isDoubleDown
+            ? [BoxShadow(color: const Color(0xFF3B82F6).withOpacity(0.15), blurRadius: 8)]
+            : null,
       ),
       child: Row(
         children: [
@@ -231,13 +240,30 @@ class PredTile extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,
               children: [
-                Text(
-                  user.displayName.split(' ').first,
-                  style: TextStyle(
-                    fontSize: compact ? 12 : 13,
-                    fontWeight: FontWeight.w700,
-                  ),
-                  overflow: TextOverflow.ellipsis,
+                Row(
+                  children: [
+                    Text(
+                      user.displayName.split(' ').first,
+                      style: TextStyle(
+                        fontSize: compact ? 12 : 13,
+                        fontWeight: FontWeight.w700,
+                      ),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    if (isDoubleDown) ...[
+                      const SizedBox(width: 4),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF3B82F6).withOpacity(0.2),
+                          borderRadius: BorderRadius.circular(100),
+                          border: Border.all(color: const Color(0xFF3B82F6).withOpacity(0.5)),
+                        ),
+                        child: const Text('2×',
+                          style: TextStyle(fontSize: 8, fontWeight: FontWeight.w900, color: Color(0xFF60A5FA))),
+                      ),
+                    ],
+                  ],
                 ),
                 if (prediction?.penHome != null && prediction?.penAway != null)
                   Text(
@@ -263,6 +289,7 @@ class PredTile extends StatelessWidget {
                 liveAway: liveAway!,
                 livePenHome: livePenHome,
                 livePenAway: livePenAway,
+                isDoubleDown: isDoubleDown,
               ),
             ] else
               ResultChip(
@@ -326,6 +353,7 @@ class _LivePtsBadge extends StatelessWidget {
   final int liveAway;
   final int? livePenHome;
   final int? livePenAway;
+  final bool isDoubleDown;
 
   const _LivePtsBadge({
     required this.prediction,
@@ -333,6 +361,7 @@ class _LivePtsBadge extends StatelessWidget {
     required this.liveAway,
     this.livePenHome,
     this.livePenAway,
+    this.isDoubleDown = false,
   });
 
   @override
@@ -346,14 +375,15 @@ class _LivePtsBadge extends StatelessWidget {
     int penPts = 0;
     if (livePenHome != null && livePenAway != null
         && prediction.penHome != null && prediction.penAway != null) {
-      penPts = ScoringService.calculate(
+      penPts = ScoringService.calculatePen(
         predHome: prediction.penHome!,
         predAway: prediction.penAway!,
         actualHome: livePenHome!,
         actualAway: livePenAway!,
       ).points;
     }
-    final pts = scored.points + penPts;
+    final rawPts = scored.points + penPts;
+    final pts = isDoubleDown ? rawPts * 2 : rawPts;
     final color = pts >= 50
         ? AppColors.green
         : pts >= 20
@@ -364,9 +394,9 @@ class _LivePtsBadge extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.1),
+        color: isDoubleDown ? const Color(0xFF3B82F6).withOpacity(0.12) : color.withOpacity(0.1),
         borderRadius: BorderRadius.circular(100),
-        border: Border.all(color: color.withOpacity(0.3)),
+        border: Border.all(color: isDoubleDown ? const Color(0xFF3B82F6).withOpacity(0.4) : color.withOpacity(0.3)),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -377,9 +407,11 @@ class _LivePtsBadge extends StatelessWidget {
               color: AppColors.red, shape: BoxShape.circle),
           ),
           const SizedBox(width: 4),
-          Text('+$pts',
+          Text(
+            isDoubleDown ? '⚡ 2×+$pts' : '+$pts',
             style: TextStyle(
-              fontSize: 10, fontWeight: FontWeight.w700, color: color)),
+              fontSize: 10, fontWeight: FontWeight.w700,
+              color: isDoubleDown ? const Color(0xFF60A5FA) : color)),
         ],
       ),
     );

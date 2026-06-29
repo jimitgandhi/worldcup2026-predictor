@@ -86,6 +86,25 @@ class FirestoreService {
     }, SetOptions(merge: true));
   }
 
+  /// Update only the pen prediction on an existing prediction doc (live match, before pens start).
+  Future<void> submitPenPrediction({
+    required String userId,
+    required String matchId,
+    required int penHome,
+    required int penAway,
+  }) async {
+    final id = Prediction.makeId(userId, matchId);
+    await _db.collection('predictions').doc(id).update({
+      'penHome': penHome,
+      'penAway': penAway,
+    });
+  }
+
+  /// Set Double Down on a match — can only be done once per user, before kickoff.
+  Future<void> setDoubleDown(String userId, String matchId) async {
+    await _db.collection('users').doc(userId).update({'doubleDownMatchId': matchId});
+  }
+
   // ─── Score settling (called after match finishes) ────────
   Future<void> settleMatch({
     required String matchId,
@@ -102,6 +121,11 @@ class FirestoreService {
         .collection('predictions')
         .where('matchId', isEqualTo: matchId)
         .get();
+
+    // Fetch all relevant user docs to check doubleDownMatchId
+    final userIds = preds.docs.map((d) => d['userId'] as String).toSet();
+    final userDocs = await Future.wait(userIds.map((uid) => _db.collection('users').doc(uid).get()));
+    final ddMap = {for (final doc in userDocs) doc.id: doc.data()?['doubleDownMatchId'] as String?};
 
     final batch = _db.batch();
 
@@ -122,7 +146,7 @@ class FirestoreService {
         final userPenHome = doc.data()['penHome'] as int?;
         final userPenAway = doc.data()['penAway'] as int?;
         if (userPenHome != null && userPenAway != null) {
-          final penScored = ScoringService.calculate(
+          final penScored = ScoringService.calculatePen(
             predHome: userPenHome, predAway: userPenAway,
             actualHome: penaltyHome, actualAway: penaltyAway,
           );
@@ -131,7 +155,9 @@ class FirestoreService {
         }
       }
 
-      final totalPts = scored.points + penPts;
+      final isDD = ddMap[userId] == matchId;
+      final rawPts = scored.points + penPts;
+      final totalPts = isDD ? rawPts * 2 : rawPts;
 
       // Update prediction
       batch.update(doc.reference, {
@@ -139,6 +165,7 @@ class FirestoreService {
         'result': scored.result.name,
         if (penResult != null) 'penPointsEarned': penPts,
         if (penResult != null) 'penResult': penResult.name,
+        if (isDD) 'isDoubleDown': true,
       });
 
       // Update user totals
@@ -154,7 +181,7 @@ class FirestoreService {
           'correctResultCount': FieldValue.increment(1),
         if (scored.result == PredictionResult.oneScore)
           'oneScoreCount': FieldValue.increment(1),
-        if (penPts > 0)  // only count when user actually scored pen bonus points
+        if (penPts > 0)
           'penBonusCount': FieldValue.increment(1),
       });
     }
@@ -187,7 +214,7 @@ class FirestoreService {
           final uPH = doc.data()['penHome'] as int?;
           final uPA = doc.data()['penAway'] as int?;
           if (uPH != null && uPA != null) {
-            penPts = ScoringService.calculate(
+            penPts = ScoringService.calculatePen(
               predHome: uPH, predAway: uPA,
               actualHome: penaltyHome, actualAway: penaltyAway,
             ).points;
@@ -242,6 +269,11 @@ class FirestoreService {
         .where('matchId', isEqualTo: matchId)
         .get();
 
+    // Fetch user docs for doubleDownMatchId
+    final userIds = preds.docs.map((d) => d['userId'] as String).toSet();
+    final userDocs = await Future.wait(userIds.map((uid) => _db.collection('users').doc(uid).get()));
+    final ddMap = {for (final doc in userDocs) doc.id: doc.data()?['doubleDownMatchId'] as String?};
+
     final Map<String, int> pointDeltas = {};
     final Map<String, Map<String, int>> countDeltas = {};
     final List<MapEntry<DocumentReference, Map<String, dynamic>>> predUpdates = [];
@@ -251,8 +283,10 @@ class FirestoreService {
       final predHome = doc['homeScore'] as int;
       final predAway = doc['awayScore'] as int;
       final oldResultStr = doc.data()['result'] as String? ?? 'pending';
-      final oldPoints = (doc.data()['pointsEarned'] as int? ?? 0)
-          + (doc.data()['penPointsEarned'] as int? ?? 0);
+      // Account for old doubleDown when computing the old total (to get correct delta)
+      final oldIsDD = doc.data()['isDoubleDown'] as bool? ?? false;
+      final oldRawPts = (doc.data()['pointsEarned'] as int? ?? 0) + (doc.data()['penPointsEarned'] as int? ?? 0);
+      final oldPoints = oldIsDD ? oldRawPts * 2 : oldRawPts;
 
       final scored = ScoringService.calculate(
         predHome: predHome, predAway: predAway,
@@ -266,7 +300,7 @@ class FirestoreService {
         final uPH = doc.data()['penHome'] as int?;
         final uPA = doc.data()['penAway'] as int?;
         if (uPH != null && uPA != null) {
-          final ps = ScoringService.calculate(
+          final ps = ScoringService.calculatePen(
             predHome: uPH, predAway: uPA,
             actualHome: penaltyHome, actualAway: penaltyAway,
           );
@@ -275,7 +309,9 @@ class FirestoreService {
         }
       }
 
-      final totalPts = scored.points + penPts;
+      final isDD = ddMap[userId] == matchId;
+      final rawPts = scored.points + penPts;
+      final totalPts = isDD ? rawPts * 2 : rawPts;
 
       predUpdates.add(MapEntry(doc.reference, {
         'pointsEarned': scored.points,
@@ -285,6 +321,7 @@ class FirestoreService {
         // Explicitly clear stale pen fields when match is not penalty
         if (penResult == null) 'penPointsEarned': FieldValue.delete(),
         if (penResult == null) 'penResult': FieldValue.delete(),
+        if (isDD) 'isDoubleDown': true else 'isDoubleDown': FieldValue.delete(),
       }));
 
       pointDeltas[userId] = (pointDeltas[userId] ?? 0) + totalPts - oldPoints;
@@ -389,6 +426,10 @@ class FirestoreService {
       }
     }
 
+    // Fetch all user docs for doubleDownMatchId
+    final allUserDocs = await _db.collection('users').get();
+    final ddMap = {for (final doc in allUserDocs.docs) doc.id: doc.data()['doubleDownMatchId'] as String?};
+
     // 3. Recalculate each prediction, accumulate user totals
     final Map<String, int> userPointDeltas = {};
     final Map<String, Map<String, int>> userCountReset = {};
@@ -416,7 +457,7 @@ class FirestoreService {
         final uPH = d['penHome'] as int?;
         final uPA = d['penAway'] as int?;
         if (uPH != null && uPA != null) {
-          final ps = ScoringService.calculate(
+          final ps = ScoringService.calculatePen(
             predHome: uPH, predAway: uPA,
             actualHome: penaltyHome, actualAway: penaltyAway,
           );
@@ -425,6 +466,11 @@ class FirestoreService {
         }
       }
 
+      final userId = d['userId'] as String? ?? '';
+      final isDD = ddMap[userId] == matchId;
+      final rawPts = scored.points + penPts;
+      final totalPts = isDD ? rawPts * 2 : rawPts;
+
       predUpdates.add(MapEntry(doc.reference, {
         'pointsEarned': scored.points,
         'result': scored.result.name,
@@ -432,10 +478,10 @@ class FirestoreService {
         if (penResult != null) 'penResult': penResult.name,
         if (penResult == null) 'penPointsEarned': FieldValue.delete(),
         if (penResult == null) 'penResult': FieldValue.delete(),
+        if (isDD) 'isDoubleDown': true else 'isDoubleDown': FieldValue.delete(),
       }));
 
-      final userId = d['userId'] as String? ?? '';
-      userPointDeltas[userId] = (userPointDeltas[userId] ?? 0) + scored.points + penPts;
+      userPointDeltas[userId] = (userPointDeltas[userId] ?? 0) + totalPts;
 
       final counts = userCountReset.putIfAbsent(userId, () => {
         'exactCount': 0, 'correctPlusOneCount': 0,
@@ -463,8 +509,7 @@ class FirestoreService {
 
     // 4. Reset all user point totals (≤10 users — one batch is fine)
     final userBatch = _db.batch();
-    final allUsers = await _db.collection('users').get();
-    for (final uDoc in allUsers.docs) {
+    for (final uDoc in allUserDocs.docs) {
       final uid = uDoc.id;
       final counts = userCountReset[uid];
       userBatch.update(uDoc.reference, {

@@ -1,11 +1,18 @@
 import '../models/prediction.dart';
 
 class ScoringService {
+  // Main match scoring
   static const int exactPoints          = 50;
   static const int correctPlusOnePoints = 30;
   static const int correctResultPoints  = 20;
   static const int oneScorePoints       = 10;
   static const int wrongPoints          = 0;
+
+  // Penalty bonus scoring (half of main)
+  static const int penExactPoints          = 25;
+  static const int penCorrectPlusOnePoints = 15;
+  static const int penCorrectResultPoints  = 10;
+  static const int penOneScorePoints       = 5;
 
   /// Calculate points and result for a prediction vs actual match result.
   ///
@@ -38,6 +45,32 @@ class ScoringService {
       return (points: oneScorePoints, result: PredictionResult.oneScore);
     }
     return (points: wrongPoints, result: PredictionResult.wrong);
+  }
+
+  /// Calculate penalty bonus points (half of main scoring).
+  static ({int points, PredictionResult result}) calculatePen({
+    required int predHome, required int predAway,
+    required int actualHome, required int actualAway,
+  }) {
+    if (predHome == actualHome && predAway == actualAway) {
+      return (points: penExactPoints, result: PredictionResult.exact);
+    }
+
+    final oneScoreRight = predHome == actualHome || predAway == actualAway;
+    final predResult = _result(predHome, predAway);
+    final actualResult = _result(actualHome, actualAway);
+    final correctResult = predResult == actualResult;
+
+    if (correctResult && oneScoreRight) {
+      return (points: penCorrectPlusOnePoints, result: PredictionResult.correctPlusOne);
+    }
+    if (correctResult) {
+      return (points: penCorrectResultPoints, result: PredictionResult.correctResult);
+    }
+    if (oneScoreRight) {
+      return (points: penOneScorePoints, result: PredictionResult.oneScore);
+    }
+    return (points: 0, result: PredictionResult.wrong);
   }
 
   static _MatchResult _result(int home, int away) {

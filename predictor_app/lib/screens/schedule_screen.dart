@@ -33,6 +33,7 @@ class _ScheduleScreenState extends State<ScheduleScreen>
   List<UserModel> _users = [];
   bool _loading = true;
   bool _isAdmin = false;
+  UserModel? _currentUser;
 
   // Prevent double-settling (e.g. timer fires twice before Firestore stream catches up)
   final Set<String> _settlingMatchIds = {};
@@ -70,7 +71,10 @@ class _ScheduleScreenState extends State<ScheduleScreen>
     _userSub = _firestore.currentUserStream(_user.uid).listen((model) {
       if (mounted && model != null) {
         final wasAdmin = _isAdmin;
-        setState(() => _isAdmin = model.isAdmin);
+        setState(() {
+          _isAdmin = model.isAdmin;
+          _currentUser = model;
+        });
         // If isAdmin just became true, run autoSettle now in case matches
         // finished while we were loading (isAdmin stream lags behind _load)
         if (!wasAdmin && model.isAdmin && _allMatches.isNotEmpty) {
@@ -194,6 +198,22 @@ class _ScheduleScreenState extends State<ScheduleScreen>
     );
   }
 
+  Future<void> _submitPenPrediction(Match match, int penHome, int penAway) async {
+    await _firestore.submitPenPrediction(
+      userId: _user.uid,
+      matchId: match.id,
+      penHome: penHome,
+      penAway: penAway,
+    );
+  }
+
+  Future<void> _setDoubleDown(Match match) async {
+    // Validate: match must be upcoming, user hasn't used DD yet
+    if (!match.isPredictionOpen) return;
+    if (_currentUser?.doubleDownMatchId != null) return;
+    await _firestore.setDoubleDown(_user.uid, match.id);
+  }
+
   void _showMatchPredictions(BuildContext context, Match match) {
     showModalBottomSheet(
       context: context,
@@ -235,11 +255,21 @@ class _ScheduleScreenState extends State<ScheduleScreen>
         itemCount: matches.length,
         itemBuilder: (_, i) {
           final m = matches[i];
+          final isDD = _currentUser?.doubleDownMatchId == m.id;
+          final canEnableDD = _currentUser?.doubleDownMatchId == null;
           Widget card = MatchCard(
             match: m,
             prediction: _predictions[m.id],
             onSubmit: (canSubmit && m.isPredictionOpen)
                 ? (h, a, ph, pa) => _submitPrediction(m, h, a, ph, pa)
+                : null,
+            onSubmitPen: (m.isPenPredictionOpen && _predictions.containsKey(m.id))
+                ? (ph, pa) => _submitPenPrediction(m, ph, pa)
+                : null,
+            isDoubleDown: isDD,
+            canEnableDoubleDown: !isDD && canEnableDD && m.isPredictionOpen,
+            onDoubleDown: (!isDD && canEnableDD && m.isPredictionOpen)
+                ? () => _setDoubleDown(m)
                 : null,
           );
           if (showPredictions && _users.isNotEmpty) {
@@ -393,6 +423,8 @@ class _LivePredictionsPanelState extends State<_LivePredictionsPanel> {
                     liveAway: widget.match.awayScore,
                     livePenHome: widget.match.penaltyHomeScore,
                     livePenAway: widget.match.penaltyAwayScore,
+                    isDoubleDown: user.doubleDownMatchId == widget.match.id ||
+                        (predMap[user.id]?.isDoubleDown ?? false),
                   )).toList(),
                 ),
               ),

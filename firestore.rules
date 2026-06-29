@@ -27,6 +27,16 @@ service cloud.firestore {
       return get(/databases/$(database)/documents/matches/$(matchId)).data.kickoff > request.time;
     }
 
+    // Only penHome/penAway fields are changing (for live pen update)
+    function isPenOnlyUpdate() {
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly(['penHome', 'penAway']);
+    }
+
+    // Match is not yet finished (for live pen updates)
+    function matchNotFinished(matchId) {
+      return get(/databases/$(database)/documents/matches/$(matchId)).data.get('status', 'upcoming') != 'finished';
+    }
+
     // Matches — admin can write, everyone can read
     match /matches/{matchId} {
       allow read: if true;
@@ -53,11 +63,13 @@ service cloud.firestore {
         matchNotKickedOff(request.resource.data.matchId);
 
       // Update: own doc only, userId cannot change, match must not have kicked off
+      // Exception: pen-only updates are allowed until the match finishes
       allow update: if request.auth != null &&
         predictionId.matches(request.auth.uid + '_.*') &&
         request.resource.data.userId == request.auth.uid &&
         resource.data.userId == request.auth.uid &&
-        matchNotKickedOff(resource.data.matchId);
+        (matchNotKickedOff(resource.data.matchId) ||
+         (isPenOnlyUpdate() && matchNotFinished(resource.data.matchId)));
     }
 
     // Users — authenticated users read all (leaderboard)

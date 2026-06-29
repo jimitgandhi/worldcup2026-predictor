@@ -23,6 +23,9 @@ class Match {
 
   bool get wentToPenalties => penaltyHomeScore != null && penaltyAwayScore != null;
 
+  /// True when a live knockout match hasn't gone to penalties yet — pen predictions can still be updated.
+  bool get isPenPredictionOpen => status == MatchStatus.live && isKnockout && !wentToPenalties;
+
   const Match({
     required this.id,
     required this.homeTeam,

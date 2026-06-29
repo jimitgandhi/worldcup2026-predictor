@@ -116,9 +116,14 @@ class LeaderboardScreen extends StatelessWidget {
                         margin: const EdgeInsets.only(bottom: 7),
                         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
                         decoration: BoxDecoration(
-                          color: AppColors.card,
+                          color: p.isDoubleDown ? const Color(0xFF3B82F6).withOpacity(0.07) : AppColors.card,
                           borderRadius: BorderRadius.circular(12),
-                          border: Border.all(color: AppColors.border),
+                          border: Border.all(
+                            color: p.isDoubleDown ? const Color(0xFF3B82F6).withOpacity(0.4) : AppColors.border,
+                          ),
+                          boxShadow: p.isDoubleDown
+                              ? [BoxShadow(color: const Color(0xFF3B82F6).withOpacity(0.12), blurRadius: 8)]
+                              : null,
                         ),
                         child: Row(
                           children: [
@@ -219,8 +224,21 @@ class LeaderboardScreen extends StatelessWidget {
                       border: Border.all(color: const Color(0x337C3AED)),
                     ),
                     child: const Text(
-                      '🎯 Knockout Penalty Bonus\n\nPredict the penalty shootout too. Same scoring rules, stacks on top — max 100 pts per match!',
+                      '🎯 Knockout Penalty Bonus\n\nPredict the penalty shootout too. Same scoring rules but half points (max 25) — stacks on top of your main score.',
                       style: TextStyle(fontSize: 12, color: Color(0xFFA78BFA), height: 1.5),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF3B82F6).withOpacity(0.08),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: const Color(0xFF3B82F6).withOpacity(0.3)),
+                    ),
+                    child: const Text(
+                      '⚡ Double Down\n\nUse once per tournament on any upcoming match. All points earned (including pens) are doubled.',
+                      style: TextStyle(fontSize: 12, color: Color(0xFF60A5FA), height: 1.5),
                     ),
                   ),
                 ],
@@ -545,6 +563,20 @@ Widget _PointPills(Prediction p) {
       if (p.penHome != null && p.penAway != null) ...[
         const SizedBox(width: 5),
         _pill('⚡+$penPts', const Color(0xFF7C3AED)),
+      ],
+      if (p.isDoubleDown) ...[
+        const SizedBox(width: 5),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 4),
+          decoration: BoxDecoration(
+            color: const Color(0xFF3B82F6).withOpacity(0.15),
+            borderRadius: BorderRadius.circular(100),
+            border: Border.all(color: const Color(0xFF3B82F6).withOpacity(0.4)),
+            boxShadow: [BoxShadow(color: const Color(0xFF3B82F6).withOpacity(0.2), blurRadius: 5)],
+          ),
+          child: Text('2× = ${(mainPts + penPts) * 2}',
+            style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: Color(0xFF60A5FA))),
+        ),
       ],
     ],
   );
