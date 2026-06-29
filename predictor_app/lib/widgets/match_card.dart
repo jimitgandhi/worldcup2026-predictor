@@ -330,51 +330,68 @@ class _Body extends StatelessWidget {
         backgroundColor: const Color(0xFF161C2E),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
         insetPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 40),
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(20),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxHeight: 560),
           child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Row(children: [
-                Text('⚡', style: TextStyle(fontSize: 18)),
-                SizedBox(width: 8),
-                Text('Penalty Shootout Rules',
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: Color(0xFFF1F3F9))),
-              ]),
-              const SizedBox(height: 6),
-              const Text('Only applies to knockout matches that go to penalties.',
-                style: TextStyle(fontSize: 12, color: Color(0xFF9AA5BE), height: 1.4)),
-              const SizedBox(height: 16),
-              _penRulesSection('🎯 How Scoring Works',
-                'Predict the final penalty shootout score (e.g. 5–3). Points are based on accuracy — half the standard prediction points:'),
-              const SizedBox(height: 10),
-              ..._penRuleRows(),
-              const SizedBox(height: 14),
-              _penRulesSection('📌 Examples', null),
-              const SizedBox(height: 6),
-              ..._penExamples(),
-              const SizedBox(height: 14),
-              _penRulesSection('⏰ When Can You Update?', null),
-              const SizedBox(height: 6),
-              const Text(
-                'You can update your penalty prediction at any time before the shootout starts. '
-                'Once penalties are in progress, the prediction locks. '
-                'You can also update it before the match kicks off in the Upcoming tab.',
-                style: TextStyle(fontSize: 12, color: Color(0xFF9AA5BE), height: 1.5)),
-              const SizedBox(height: 14),
-              _penRulesSection('➕ Stacking', null),
-              const SizedBox(height: 6),
-              const Text(
-                'Penalty points stack on top of your regular match prediction points. '
-                'For example, if you score 20 pts for the main result and 15 pts for penalties, you earn 35 pts total.',
-                style: TextStyle(fontSize: 12, color: Color(0xFF9AA5BE), height: 1.5)),
-              const SizedBox(height: 18),
-              Align(
-                alignment: Alignment.center,
-                child: TextButton(
-                  onPressed: () => Navigator.pop(ctx),
-                  child: const Text('Got it', style: TextStyle(color: Color(0xFF60A5FA), fontWeight: FontWeight.w700)),
+              // Fixed header
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 16, 8, 0),
+                child: Row(
+                  children: [
+                    const Text('⚡', style: TextStyle(fontSize: 18)),
+                    const SizedBox(width: 8),
+                    const Expanded(
+                      child: Text('Penalty Shootout Rules',
+                        style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: Color(0xFFF1F3F9))),
+                    ),
+                    IconButton(
+                      onPressed: () => Navigator.pop(ctx),
+                      icon: const Icon(Icons.close_rounded, color: Color(0xFF9AA5BE), size: 20),
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(),
+                    ),
+                  ],
+                ),
+              ),
+              const Divider(color: Color(0xFF1E2A45), height: 20),
+              // Scrollable content
+              Flexible(
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text('Only applies to knockout matches that go to penalties.',
+                        style: TextStyle(fontSize: 12, color: Color(0xFF9AA5BE), height: 1.4)),
+                      const SizedBox(height: 16),
+                      _penRulesSection('🎯 How Scoring Works',
+                        'Predict the final penalty shootout score (e.g. 5–3). Points are based on accuracy — half the standard prediction points:'),
+                      const SizedBox(height: 10),
+                      ..._penRuleRows(),
+                      const SizedBox(height: 14),
+                      _penRulesSection('📌 Shootout Examples', null),
+                      const SizedBox(height: 6),
+                      ..._penExamples(),
+                      const SizedBox(height: 14),
+                      _penRulesSection('⏰ When Can You Update?', null),
+                      const SizedBox(height: 6),
+                      const Text(
+                        'You can update your penalty prediction at any time before the shootout starts. '
+                        'Once penalties are in progress, the prediction locks. '
+                        'You can also set it before the match kicks off in the Upcoming tab.',
+                        style: TextStyle(fontSize: 12, color: Color(0xFF9AA5BE), height: 1.5)),
+                      const SizedBox(height: 14),
+                      _penRulesSection('➕ How Stacking Works', null),
+                      const SizedBox(height: 6),
+                      const Text(
+                        'Pen points are added on top of your main prediction, which is judged on the 90-min / AET score — not the penalty winner.',
+                        style: TextStyle(fontSize: 12, color: Color(0xFF9AA5BE), height: 1.5)),
+                      const SizedBox(height: 10),
+                      _stackingExample(),
+                    ],
+                  ),
                 ),
               ),
             ],
@@ -383,6 +400,60 @@ class _Body extends StatelessWidget {
       ),
     );
   }
+
+  Widget _stackingExample() => Container(
+    padding: const EdgeInsets.all(12),
+    decoration: BoxDecoration(
+      color: const Color(0x0A3B82F6),
+      borderRadius: BorderRadius.circular(10),
+      border: Border.all(color: const Color(0x303B82F6)),
+    ),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text('Example', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Color(0xFF60A5FA))),
+        const SizedBox(height: 8),
+        _stackRow('Your prediction', '2–1 (home win)'),
+        _stackRow('Actual score (AET)', '2–2 → penalties'),
+        const SizedBox(height: 6),
+        const Text('Main prediction result:', style: TextStyle(fontSize: 11, color: Color(0xFF9AA5BE))),
+        const Text('Wrong result (you picked home win, it drew) → +0 pts',
+          style: TextStyle(fontSize: 11, color: Color(0xFF6B7280), height: 1.4)),
+        const SizedBox(height: 8),
+        _stackRow('Your pen prediction', '4–5 (away wins)'),
+        _stackRow('Actual shootout', '4–5'),
+        const SizedBox(height: 6),
+        const Text('Pen prediction result:', style: TextStyle(fontSize: 11, color: Color(0xFF9AA5BE))),
+        const Text('Exact shootout score → +25 pts',
+          style: TextStyle(fontSize: 11, color: Color(0xFF10B981), height: 1.4)),
+        const Divider(color: Color(0xFF1E2A45), height: 16),
+        Row(children: [
+          const Expanded(child: Text('Total earned',
+            style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Color(0xFFF1F3F9)))),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+            decoration: BoxDecoration(
+              color: const Color(0xFF10B981).withOpacity(0.15),
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: const Color(0xFF10B981).withOpacity(0.4))),
+            child: const Text('0 + 25 = 25 pts',
+              style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: Color(0xFF10B981))),
+          ),
+        ]),
+        const SizedBox(height: 4),
+        const Text('The main score is judged on the 90-min/AET result, not the penalty winner.',
+          style: TextStyle(fontSize: 11, color: Color(0xFF6B7280), height: 1.4)),
+      ],
+    ),
+  );
+
+  Widget _stackRow(String label, String value) => Padding(
+    padding: const EdgeInsets.only(bottom: 2),
+    child: Row(children: [
+      Text('$label: ', style: const TextStyle(fontSize: 11, color: Color(0xFF9AA5BE))),
+      Text(value, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Color(0xFFF1F3F9))),
+    ]),
+  );
 
   Widget _penRulesSection(String title, String? subtitle) => Column(
     crossAxisAlignment: CrossAxisAlignment.start,
