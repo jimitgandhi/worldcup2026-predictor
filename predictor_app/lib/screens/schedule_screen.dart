@@ -207,11 +207,35 @@ class _ScheduleScreenState extends State<ScheduleScreen>
     );
   }
 
-  Future<void> _setDoubleDown(Match match) async {
-    // Validate: match must be upcoming, user hasn't used DD yet
+  Future<void> _setDoubleDown(Match match, {bool isCurrentlyDD = false}) async {
     if (!match.isPredictionOpen) return;
-    if (_currentUser?.doubleDownMatchId != null) return;
-    await _firestore.setDoubleDown(_user.uid, match.id);
+    if (isCurrentlyDD) {
+      // Confirm before clearing
+      if (!mounted) return;
+      final confirm = await showDialog<bool>(
+        context: context,
+        builder: (_) => AlertDialog(
+          backgroundColor: const Color(0xFF161C2E),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: const Text('Remove Double Down?',
+            style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: Color(0xFFF1F3F9))),
+          content: const Text(
+            'You can re-enable Double Down on any upcoming match, but only once total.',
+            style: TextStyle(fontSize: 13, color: Color(0xFF9AA5BE), height: 1.4)),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+            TextButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('Remove', style: TextStyle(color: Color(0xFFEF4444))),
+            ),
+          ],
+        ),
+      );
+      if (confirm != true) return;
+      await _firestore.clearDoubleDown(_user.uid);
+    } else if (_currentUser?.doubleDownMatchId == null) {
+      await _firestore.setDoubleDown(_user.uid, match.id);
+    }
   }
 
   void _showMatchPredictions(BuildContext context, Match match) {
@@ -268,8 +292,8 @@ class _ScheduleScreenState extends State<ScheduleScreen>
                 : null,
             isDoubleDown: isDD,
             canEnableDoubleDown: !isDD && canEnableDD && m.isPredictionOpen,
-            onDoubleDown: (!isDD && canEnableDD && m.isPredictionOpen)
-                ? () => _setDoubleDown(m)
+            onDoubleDown: m.isPredictionOpen && (isDD || (!isDD && canEnableDD))
+                ? () => _setDoubleDown(m, isCurrentlyDD: isDD)
                 : null,
           );
           if (showPredictions && _users.isNotEmpty) {

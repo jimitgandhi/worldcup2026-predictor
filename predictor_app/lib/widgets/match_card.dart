@@ -281,7 +281,7 @@ class _Header extends StatelessWidget {
                       : null,
                 ),
                 child: Text(
-                  isDoubleDown ? '⚡ 2×' : '2×',
+                  isDoubleDown ? '⚡ 2× ✕' : '2×',
                   style: TextStyle(
                     fontSize: 10, fontWeight: FontWeight.w800,
                     color: isDoubleDown ? const Color(0xFF60A5FA) : AppColors.text3,
@@ -322,6 +322,118 @@ class _Body extends StatelessWidget {
     this.onStep,
     this.onPenStep,
   });
+
+  void _showPenRulesDialog(BuildContext ctx) {
+    showDialog(
+      context: ctx,
+      builder: (_) => Dialog(
+        backgroundColor: const Color(0xFF161C2E),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+        insetPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 40),
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Row(children: [
+                Text('⚡', style: TextStyle(fontSize: 18)),
+                SizedBox(width: 8),
+                Text('Penalty Shootout Rules',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: Color(0xFFF1F3F9))),
+              ]),
+              const SizedBox(height: 6),
+              const Text('Only applies to knockout matches that go to penalties.',
+                style: TextStyle(fontSize: 12, color: Color(0xFF9AA5BE), height: 1.4)),
+              const SizedBox(height: 16),
+              _penRulesSection('🎯 How Scoring Works',
+                'Predict the final penalty shootout score (e.g. 5–3). Points are based on accuracy — half the standard prediction points:'),
+              const SizedBox(height: 10),
+              ..._penRuleRows(),
+              const SizedBox(height: 14),
+              _penRulesSection('📌 Examples', null),
+              const SizedBox(height: 6),
+              ..._penExamples(),
+              const SizedBox(height: 14),
+              _penRulesSection('⏰ When Can You Update?', null),
+              const SizedBox(height: 6),
+              const Text(
+                'You can update your penalty prediction at any time before the shootout starts. '
+                'Once penalties are in progress, the prediction locks. '
+                'You can also update it before the match kicks off in the Upcoming tab.',
+                style: TextStyle(fontSize: 12, color: Color(0xFF9AA5BE), height: 1.5)),
+              const SizedBox(height: 14),
+              _penRulesSection('➕ Stacking', null),
+              const SizedBox(height: 6),
+              const Text(
+                'Penalty points stack on top of your regular match prediction points. '
+                'For example, if you score 20 pts for the main result and 15 pts for penalties, you earn 35 pts total.',
+                style: TextStyle(fontSize: 12, color: Color(0xFF9AA5BE), height: 1.5)),
+              const SizedBox(height: 18),
+              Align(
+                alignment: Alignment.center,
+                child: TextButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  child: const Text('Got it', style: TextStyle(color: Color(0xFF60A5FA), fontWeight: FontWeight.w700)),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _penRulesSection(String title, String? subtitle) => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Text(title, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: Color(0xFFF1F3F9))),
+      if (subtitle != null) ...[
+        const SizedBox(height: 3),
+        Text(subtitle, style: const TextStyle(fontSize: 12, color: Color(0xFF9AA5BE), height: 1.4)),
+      ],
+    ],
+  );
+
+  List<Widget> _penRuleRows() => [
+    _penRuleRow('⚽  Exact score', '+25 pts', const Color(0xFF10B981)),
+    _penRuleRow('🎯  Correct + one off', '+15 pts', const Color(0xFF3B82F6)),
+    _penRuleRow('✅  Correct result', '+10 pts', const Color(0xFF8B5CF6)),
+    _penRuleRow('📊  One score correct', '+5 pts',  const Color(0xFFF59E0B)),
+    _penRuleRow('❌  Wrong', '+0 pts',  const Color(0xFF6B7280)),
+  ];
+
+  Widget _penRuleRow(String label, String pts, Color color) => Padding(
+    padding: const EdgeInsets.symmetric(vertical: 3),
+    child: Row(children: [
+      Expanded(child: Text(label, style: const TextStyle(fontSize: 12, color: Color(0xFF9AA5BE)))),
+      Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+        decoration: BoxDecoration(color: color.withOpacity(0.15), borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: color.withOpacity(0.4))),
+        child: Text(pts, style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: color)),
+      ),
+    ]),
+  );
+
+  List<Widget> _penExamples() => [
+    _penExample('You predict 5–4, actual is 5–4', 'Exact → +25 pts', const Color(0xFF10B981)),
+    _penExample('You predict 5–3, actual is 5–4', 'Correct result + almost → +15 pts', const Color(0xFF3B82F6)),
+    _penExample('You predict 4–3, actual is 5–3', 'Correct result only → +10 pts', const Color(0xFF8B5CF6)),
+    _penExample('You predict 4–3, actual is 5–4', 'One score right → +5 pts', const Color(0xFFF59E0B)),
+    _penExample('You predict 4–3, actual is 5–2', 'Wrong → +0 pts', const Color(0xFF6B7280)),
+  ];
+
+  Widget _penExample(String scenario, String result, Color color) => Padding(
+    padding: const EdgeInsets.symmetric(vertical: 4),
+    child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      const Text('• ', style: TextStyle(fontSize: 12, color: Color(0xFF9AA5BE))),
+      Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Text(scenario, style: const TextStyle(fontSize: 12, color: Color(0xFF9AA5BE))),
+        Text(result, style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: color)),
+      ])),
+    ]),
+  );
 
   Widget _flagWithGlow(String logoUrl, Color? glow) {
     if (glow == null) return FlagImage(logoUrl: logoUrl, width: 52, height: 36);
@@ -495,9 +607,19 @@ class _Body extends StatelessWidget {
                 ),
                 child: Column(
                   children: [
-                    const Text('⚡ PENALTY SHOOTOUT',
-                      style: TextStyle(fontSize: 8, fontWeight: FontWeight.w800,
-                        letterSpacing: 0.8, color: Color(0xFFA78BFA))),
+                    Builder(builder: (ctx) => GestureDetector(
+                      onTap: () => _showPenRulesDialog(ctx),
+                      child: const Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text('⚡ PENALTY SHOOTOUT',
+                            style: TextStyle(fontSize: 8, fontWeight: FontWeight.w800,
+                              letterSpacing: 0.8, color: Color(0xFFA78BFA))),
+                          SizedBox(width: 4),
+                          Icon(Icons.info_outline_rounded, size: 10, color: Color(0xFFA78BFA)),
+                        ],
+                      ),
+                    )),
                     const SizedBox(height: 10),
                     Row(
                       children: [

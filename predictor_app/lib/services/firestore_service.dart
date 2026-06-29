@@ -105,6 +105,11 @@ class FirestoreService {
     await _db.collection('users').doc(userId).update({'doubleDownMatchId': matchId});
   }
 
+  /// Clear Double Down — user can undo before the match kicks off.
+  Future<void> clearDoubleDown(String userId) async {
+    await _db.collection('users').doc(userId).update({'doubleDownMatchId': FieldValue.delete()});
+  }
+
   // ─── Score settling (called after match finishes) ────────
   Future<void> settleMatch({
     required String matchId,

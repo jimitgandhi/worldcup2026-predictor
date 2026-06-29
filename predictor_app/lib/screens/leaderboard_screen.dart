@@ -560,7 +560,7 @@ Widget _PointPills(Prediction p) {
     mainAxisSize: MainAxisSize.min,
     children: [
       _pill('+$mainPts', mainColor),
-      if (p.penHome != null && p.penAway != null) ...[
+      if (p.penResult != null) ...[
         const SizedBox(width: 5),
         _pill('⚡+$penPts', const Color(0xFF7C3AED)),
       ],

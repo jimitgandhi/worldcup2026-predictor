@@ -23,8 +23,11 @@ class Match {
 
   bool get wentToPenalties => penaltyHomeScore != null && penaltyAwayScore != null;
 
-  /// True when a live knockout match hasn't gone to penalties yet — pen predictions can still be updated.
-  bool get isPenPredictionOpen => status == MatchStatus.live && isKnockout && !wentToPenalties;
+  /// True when penalties are currently in progress (ESPN period 5) or have finished.
+  final bool inPenalties;
+
+  /// True when a live knockout match hasn't yet entered penalty shootout — pen predictions can still be updated.
+  bool get isPenPredictionOpen => status == MatchStatus.live && isKnockout && !inPenalties;
 
   const Match({
     required this.id,
@@ -44,6 +47,7 @@ class Match {
     this.isKnockout = false,
     this.penaltyHomeScore,
     this.penaltyAwayScore,
+    this.inPenalties = false,
   });
 
   bool get isPredictionOpen =>
@@ -76,6 +80,8 @@ class Match {
       isKnockout: d['isKnockout'] as bool? ?? false,
       penaltyHomeScore: d['penaltyHomeScore'] as int?,
       penaltyAwayScore: d['penaltyAwayScore'] as int?,
+      // If finished match has penalty scores, pens happened
+      inPenalties: d['penaltyHomeScore'] != null,
     );
   }
 
@@ -93,6 +99,14 @@ class Match {
     else if (state == 'post') status = MatchStatus.finished;
     else status = MatchStatus.upcoming;
 
+    // Detect penalty shootout: period 5+ or status name contains shootout/pen indicator
+    final period = statusObj['period'] as int? ?? 0;
+    final statusName = (statusType['name'] as String? ?? '').toUpperCase();
+    final inPenalties = period >= 5 ||
+        statusName.contains('SHOOTOUT') ||
+        statusName.contains('PENALTY') ||
+        (state == 'post' && (statusName.contains('PEN') || statusName.contains('_AET_PEN')));
+
     return Match(
       id: event['id'].toString(),
       homeTeam: home['team']['displayName'] ?? '',
@@ -108,6 +122,7 @@ class Match {
       homeScore: int.tryParse(home['score']?.toString() ?? ''),
       awayScore: int.tryParse(away['score']?.toString() ?? ''),
       displayClock: statusObj['displayClock'] as String?,
+      inPenalties: inPenalties,
       // Knockout only if ESPN explicitly marks it as a knockout round
       isKnockout: () {
         final note = (competition['altGameNote'] as String? ?? '').toLowerCase();
