@@ -160,6 +160,7 @@ class MatchPredictionsSheet extends StatelessWidget {
                       prediction: predMap[sorted[i].id],
                       isDoubleDown: sorted[i].doubleDownMatchId == match.id ||
                           (predMap[sorted[i].id]?.isDoubleDown ?? false),
+                      showPenCount: true,
                     );
                   },
                 );
@@ -183,7 +184,8 @@ class PredTile extends StatelessWidget {
   final int? livePenHome;
   final int? livePenAway;
   final bool isDoubleDown;
-  final bool showPenPick; // only show pen prediction once pens have started
+  final bool showPenPick;  // show actual pen pick (once pens have started)
+  final bool showPenCount; // show pen update count (visible to everyone in live tab)
 
   const PredTile({
     super.key,
@@ -196,6 +198,7 @@ class PredTile extends StatelessWidget {
     this.livePenAway,
     this.isDoubleDown = false,
     this.showPenPick = true,
+    this.showPenCount = false,
   });
 
   @override
@@ -269,8 +272,14 @@ class PredTile extends StatelessWidget {
                 ),
                 if (showPenPick && prediction?.penHome != null && prediction?.penAway != null)
                   Text(
-                    '🎯 Pens: ${prediction!.penHome}–${prediction!.penAway}',
+                    '🎯 Pens: ${prediction!.penHome}–${prediction!.penAway}'
+                    '${showPenCount && prediction!.penUpdateCount > 0 ? " · ${prediction!.penUpdateCount}×" : ""}',
                     style: const TextStyle(fontSize: 9, color: Color(0xFFA78BFA), fontWeight: FontWeight.w600),
+                  )
+                else if (!showPenPick && showPenCount && (prediction?.penUpdateCount ?? 0) > 0)
+                  Text(
+                    '⚡ ${prediction!.penUpdateCount}× pen updates',
+                    style: const TextStyle(fontSize: 9, color: Color(0xFF7C6BAA), fontWeight: FontWeight.w600),
                   ),
               ],
             ),

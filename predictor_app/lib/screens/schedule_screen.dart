@@ -466,6 +466,7 @@ class _LivePredictionsPanelState extends State<_LivePredictionsPanel> {
                     isDoubleDown: user.doubleDownMatchId == widget.match.id ||
                         (predMap[user.id]?.isDoubleDown ?? false),
                     showPenPick: widget.showPenPick,
+                    showPenCount: true,
                   )).toList(),
                 ),
               ),
