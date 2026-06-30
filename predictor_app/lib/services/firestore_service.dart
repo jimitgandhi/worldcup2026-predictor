@@ -97,6 +97,7 @@ class FirestoreService {
     await _db.collection('predictions').doc(id).update({
       'penHome': penHome,
       'penAway': penAway,
+      'penUpdateCount': FieldValue.increment(1),
     });
   }
 

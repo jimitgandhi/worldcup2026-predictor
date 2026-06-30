@@ -107,6 +107,21 @@ class Match {
         statusName.contains('PENALTY') ||
         (state == 'post' && (statusName.contains('PEN') || statusName.contains('_AET_PEN')));
 
+    // Parse penalty shootout scores from linescores (period 5 = shootout)
+    int? penaltyHome, penaltyAway;
+    for (final ls in (home['linescores'] as List? ?? [])) {
+      final lsMap = ls as Map<String, dynamic>;
+      if ((lsMap['period'] as int? ?? 0) >= 5) {
+        penaltyHome = (lsMap['value'] as num?)?.toInt();
+      }
+    }
+    for (final ls in (away['linescores'] as List? ?? [])) {
+      final lsMap = ls as Map<String, dynamic>;
+      if ((lsMap['period'] as int? ?? 0) >= 5) {
+        penaltyAway = (lsMap['value'] as num?)?.toInt();
+      }
+    }
+
     return Match(
       id: event['id'].toString(),
       homeTeam: home['team']['displayName'] ?? '',
@@ -123,6 +138,8 @@ class Match {
       awayScore: int.tryParse(away['score']?.toString() ?? ''),
       displayClock: statusObj['displayClock'] as String?,
       inPenalties: inPenalties,
+      penaltyHomeScore: penaltyHome,
+      penaltyAwayScore: penaltyAway,
       // Knockout only if ESPN explicitly marks it as a knockout round
       isKnockout: () {
         final note = (competition['altGameNote'] as String? ?? '').toLowerCase();
@@ -132,6 +149,35 @@ class Match {
       }(),
     );
   }
+
+  /// Returns a copy with selected fields overridden (others unchanged).
+  Match copyWith({
+    String? homeTeam,
+    String? awayTeam,
+    String? homeTeamCode,
+    String? awayTeamCode,
+    String? homeTeamLogo,
+    String? awayTeamLogo,
+  }) => Match(
+    id: id,
+    homeTeam: homeTeam ?? this.homeTeam,
+    awayTeam: awayTeam ?? this.awayTeam,
+    homeTeamCode: homeTeamCode ?? this.homeTeamCode,
+    awayTeamCode: awayTeamCode ?? this.awayTeamCode,
+    homeTeamLogo: homeTeamLogo ?? this.homeTeamLogo,
+    awayTeamLogo: awayTeamLogo ?? this.awayTeamLogo,
+    group: group,
+    venue: venue,
+    kickoff: kickoff,
+    status: status,
+    homeScore: homeScore,
+    awayScore: awayScore,
+    displayClock: displayClock,
+    isKnockout: isKnockout,
+    penaltyHomeScore: penaltyHomeScore,
+    penaltyAwayScore: penaltyAwayScore,
+    inPenalties: inPenalties,
+  );
 
   Map<String, dynamic> toFirestore() => {
     'homeTeam': homeTeam,

@@ -153,6 +153,8 @@ class _ScheduleScreenState extends State<ScheduleScreen>
         matchId: m.id,
         actualHome: m.homeScore!,
         actualAway: m.awayScore!,
+        penaltyHome: m.penaltyHomeScore,
+        penaltyAway: m.penaltyAwayScore,
       ).catchError((e) {
         debugPrint('Auto-settle failed for ${m.id}: $e');
       }).whenComplete(() {
@@ -172,9 +174,18 @@ class _ScheduleScreenState extends State<ScheduleScreen>
     final espnIds = {for (final m in _allMatches) m.id};
     final merged = _allMatches.map((m) {
       final fs = _firestoreOverrides[m.id];
-      // Only use Firestore override when the match is settled — for live/upcoming,
-      // ESPN real-time data is more accurate than Firestore's stale status.
-      if (fs != null && fs.status == MatchStatus.finished) return fs;
+      // For finished matches use Firestore (settled data) but overlay ESPN team
+      // names/logos — ESPN always has the resolved names even for knockout TBDs.
+      if (fs != null && fs.status == MatchStatus.finished) {
+        return fs.copyWith(
+          homeTeam: m.homeTeam.isNotEmpty ? m.homeTeam : null,
+          awayTeam: m.awayTeam.isNotEmpty ? m.awayTeam : null,
+          homeTeamCode: m.homeTeamCode.isNotEmpty ? m.homeTeamCode : null,
+          awayTeamCode: m.awayTeamCode.isNotEmpty ? m.awayTeamCode : null,
+          homeTeamLogo: m.homeTeamLogo.isNotEmpty ? m.homeTeamLogo : null,
+          awayTeamLogo: m.awayTeamLogo.isNotEmpty ? m.awayTeamLogo : null,
+        );
+      }
       return m;
     }).toList();
     for (final m in _firestoreOverrides.values) {
@@ -301,7 +312,11 @@ class _ScheduleScreenState extends State<ScheduleScreen>
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 card,
-                _LivePredictionsPanel(match: m, users: _users),
+                _LivePredictionsPanel(
+                  match: m,
+                  users: _users,
+                  showPenPick: m.inPenalties || m.wentToPenalties,
+                ),
               ],
             );
           }
@@ -380,8 +395,9 @@ class _ScheduleScreenState extends State<ScheduleScreen>
 class _LivePredictionsPanel extends StatefulWidget {
   final Match match;
   final List<UserModel> users;
+  final bool showPenPick;
 
-  const _LivePredictionsPanel({required this.match, required this.users});
+  const _LivePredictionsPanel({required this.match, required this.users, this.showPenPick = false});
 
   @override
   State<_LivePredictionsPanel> createState() => _LivePredictionsPanelState();
@@ -449,6 +465,7 @@ class _LivePredictionsPanelState extends State<_LivePredictionsPanel> {
                     livePenAway: widget.match.penaltyAwayScore,
                     isDoubleDown: user.doubleDownMatchId == widget.match.id ||
                         (predMap[user.id]?.isDoubleDown ?? false),
+                    showPenPick: widget.showPenPick,
                   )).toList(),
                 ),
               ),

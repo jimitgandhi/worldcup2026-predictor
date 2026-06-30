@@ -183,6 +183,7 @@ class PredTile extends StatelessWidget {
   final int? livePenHome;
   final int? livePenAway;
   final bool isDoubleDown;
+  final bool showPenPick; // only show pen prediction once pens have started
 
   const PredTile({
     super.key,
@@ -194,6 +195,7 @@ class PredTile extends StatelessWidget {
     this.livePenHome,
     this.livePenAway,
     this.isDoubleDown = false,
+    this.showPenPick = true,
   });
 
   @override
@@ -265,7 +267,7 @@ class PredTile extends StatelessWidget {
                     ],
                   ],
                 ),
-                if (prediction?.penHome != null && prediction?.penAway != null)
+                if (showPenPick && prediction?.penHome != null && prediction?.penAway != null)
                   Text(
                     '🎯 Pens: ${prediction!.penHome}–${prediction!.penAway}',
                     style: const TextStyle(fontSize: 9, color: Color(0xFFA78BFA), fontWeight: FontWeight.w600),

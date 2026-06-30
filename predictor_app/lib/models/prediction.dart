@@ -25,6 +25,9 @@ class Prediction {
   // Double Down — points doubled for this match
   final bool isDoubleDown;
 
+  // Number of times the user updated their pen prediction while the match was live
+  final int penUpdateCount;
+
   const Prediction({
     required this.id,
     required this.userId,
@@ -42,6 +45,7 @@ class Prediction {
     this.penPointsEarned,
     this.penResult,
     this.isDoubleDown = false,
+    this.penUpdateCount = 0,
   });
 
   static String makeId(String userId, String matchId) => '${userId}_$matchId';
@@ -83,6 +87,7 @@ class Prediction {
       penPointsEarned: d['penPointsEarned'] as int?,
       penResult: penResult,
       isDoubleDown: d['isDoubleDown'] as bool? ?? false,
+      penUpdateCount: d['penUpdateCount'] as int? ?? 0,
     );
   }
 

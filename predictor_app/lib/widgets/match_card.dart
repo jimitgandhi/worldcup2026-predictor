@@ -488,11 +488,11 @@ class _Body extends StatelessWidget {
   );
 
   List<Widget> _penExamples() => [
-    _penExample('You predict 5–4, actual is 5–4', 'Exact → +25 pts', const Color(0xFF10B981)),
-    _penExample('You predict 5–3, actual is 5–4', 'Correct result + almost → +15 pts', const Color(0xFF3B82F6)),
-    _penExample('You predict 4–3, actual is 5–3', 'Correct result only → +10 pts', const Color(0xFF8B5CF6)),
-    _penExample('You predict 4–3, actual is 5–4', 'One score right → +5 pts', const Color(0xFFF59E0B)),
-    _penExample('You predict 4–3, actual is 5–2', 'Wrong → +0 pts', const Color(0xFF6B7280)),
+    _penExample('Predict 5–4, actual 5–4', 'Exact match → +25 pts', const Color(0xFF10B981)),
+    _penExample('Predict 5–3, actual 5–4', 'Home score matches (5=5), same result → +15 pts', const Color(0xFF3B82F6)),
+    _penExample('Predict 4–2, actual 6–3', 'No score matches, but both home wins → +10 pts', const Color(0xFF8B5CF6)),
+    _penExample('Predict 4–3 (home), actual 4–5 (away)', 'Home score matches (4=4), but wrong result → +5 pts', const Color(0xFFF59E0B)),
+    _penExample('Predict 3–2 (home), actual 2–5 (away)', 'No score matches, wrong result → +0 pts', const Color(0xFF6B7280)),
   ];
 
   Widget _penExample(String scenario, String result, Color color) => Padding(
@@ -894,7 +894,42 @@ class _Footer extends StatelessWidget {
       ),
     );
 
-    if (!isPenOpen) return mainRow;
+    if (!isPenOpen) {
+      // Show locked indicator with update count when pens have started (live knockout)
+      if (match.status == MatchStatus.live && match.isKnockout && match.inPenalties &&
+          prediction?.penHome != null) {
+        final count = prediction!.penUpdateCount;
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            mainRow,
+            Container(
+              margin: const EdgeInsets.fromLTRB(14, 0, 14, 14),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: const Color(0x0F7C3AED),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: const Color(0x1A7C3AED)),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(Icons.lock_outline_rounded, size: 11, color: Color(0xFF7C6BAA)),
+                  const SizedBox(width: 5),
+                  Text(
+                    count > 0
+                        ? 'Pen prediction locked · updated ${count}× live'
+                        : 'Pen prediction locked',
+                    style: const TextStyle(fontSize: 10, color: Color(0xFF7C6BAA), fontWeight: FontWeight.w600),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        );
+      }
+      return mainRow;
+    }
 
     // Live pen update section
     return Column(
@@ -914,6 +949,14 @@ class _Footer extends StatelessWidget {
               const Text('⚡ UPDATE PEN PREDICTION',
                 style: TextStyle(fontSize: 8, fontWeight: FontWeight.w800,
                   letterSpacing: 0.8, color: Color(0xFFA78BFA))),
+              if ((prediction?.penUpdateCount ?? 0) > 0)
+                Padding(
+                  padding: const EdgeInsets.only(top: 3),
+                  child: Text(
+                    'Updated ${prediction!.penUpdateCount}× live',
+                    style: const TextStyle(fontSize: 9, color: Color(0xFF7C6BAA)),
+                  ),
+                ),
               const SizedBox(height: 10),
               Row(
                 children: [
