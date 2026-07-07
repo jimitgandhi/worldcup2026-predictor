@@ -22,14 +22,30 @@ service cloud.firestore {
       ]);
     }
 
+    // Whether the matches/{matchId} doc has been synced to Firestore yet.
+    // New fixtures (e.g. the next knockout round) are only synced when an
+    // admin opens the app or taps "Sync Matches" — until then this is false.
+    function matchDocExists(matchId) {
+      return exists(/databases/$(database)/documents/matches/$(matchId));
+    }
+
     // Server-side kickoff deadline: match must not have kicked off yet
     function matchNotKickedOff(matchId) {
       return get(/databases/$(database)/documents/matches/$(matchId)).data.kickoff > request.time;
     }
 
-    // Only penHome/penAway fields are changing (for live pen update)
+    // Fallback used only when the matches/{matchId} doc hasn't been synced yet:
+    // trust the client-supplied kickoffTime (already sent by submitPrediction)
+    // so users aren't blocked just because admin hasn't opened the app/synced
+    // that fixture into Firestore yet.
+    function unsyncedMatchNotKickedOff(kickoffTime) {
+      return kickoffTime is timestamp && kickoffTime > request.time;
+    }
+
+    // Only penHome/penAway (and the penUpdateCount tracker) fields are changing (for live pen update)
     function isPenOnlyUpdate() {
-      return request.resource.data.diff(resource.data).affectedKeys().hasOnly(['penHome', 'penAway']);
+      return request.resource.data.diff(resource.data).affectedKeys()
+        .hasOnly(['penHome', 'penAway', 'penUpdateCount']);
     }
 
     // Match is not yet finished (for live pen updates)
@@ -56,11 +72,15 @@ service cloud.firestore {
       // which shows another user's past predictions). Client filters to kickoffTime < now.
       allow list: if request.auth != null;
 
-      // Create: own doc only, userId field must match auth, match must not have kicked off
+      // Create: own doc only, userId field must match auth, match must not have kicked off.
+      // If the match hasn't been synced to Firestore yet (matchDocExists false),
+      // fall back to trusting the client-supplied kickoffTime instead of blocking the write.
       allow create: if request.auth != null &&
         predictionId.matches(request.auth.uid + '_.*') &&
         request.resource.data.userId == request.auth.uid &&
-        matchNotKickedOff(request.resource.data.matchId);
+        (matchDocExists(request.resource.data.matchId)
+          ? matchNotKickedOff(request.resource.data.matchId)
+          : unsyncedMatchNotKickedOff(request.resource.data.get('kickoffTime', null)));
 
       // Update: own doc only, userId cannot change, match must not have kicked off
       // Exception: pen-only updates are allowed until the match finishes
@@ -68,8 +88,11 @@ service cloud.firestore {
         predictionId.matches(request.auth.uid + '_.*') &&
         request.resource.data.userId == request.auth.uid &&
         resource.data.userId == request.auth.uid &&
-        (matchNotKickedOff(resource.data.matchId) ||
-         (isPenOnlyUpdate() && matchNotFinished(resource.data.matchId)));
+        ((matchDocExists(resource.data.matchId)
+            ? matchNotKickedOff(resource.data.matchId)
+            : unsyncedMatchNotKickedOff(resource.data.get('kickoffTime', null))) ||
+         (isPenOnlyUpdate() &&
+          (!matchDocExists(resource.data.matchId) || matchNotFinished(resource.data.matchId))));
     }
 
     // Users — authenticated users read all (leaderboard)
