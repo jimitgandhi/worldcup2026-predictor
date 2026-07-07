@@ -145,6 +145,14 @@ class _ScheduleScreenState extends State<ScheduleScreen>
     for (final m in espnMatches) {
       if (m.status != MatchStatus.finished) continue;
       if (m.homeScore == null || m.awayScore == null) continue;
+      // A knockout match that ends level must have gone to penalties. ESPN can briefly
+      // report status=post right at the final whistle before it publishes the shootout
+      // linescores (period >= 5). If we settle now, settleMatch() marks Firestore
+      // 'finished' with no penalty bonus applied — and since it's now "finished",
+      // every later poll skips it forever, even after ESPN's pen data shows up.
+      // So wait for the pen scores to actually be present before auto-settling.
+      final isDrawnKnockout = m.isKnockout && m.homeScore == m.awayScore;
+      if (isDrawnKnockout && !m.wentToPenalties) continue;
       final fsOverride = _firestoreOverrides[m.id];
       if (fsOverride?.status == MatchStatus.finished) continue; // already settled in Firestore
       if (_settlingMatchIds.contains(m.id)) continue; // already in-flight

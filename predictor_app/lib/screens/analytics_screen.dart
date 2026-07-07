@@ -87,12 +87,13 @@ class _AnalyticsScreenState extends State<AnalyticsScreen>
           matches: [], users: widget.users, runningTotals: {});
     }
 
-    // matchId → userId → total points (regular + penalty bonus)
+    // matchId → userId → total points (regular + penalty bonus, doubled if Double Down)
     final Map<String, Map<String, int>> matchUserPts = {};
     for (final pred in allPreds) {
       if (pred.result == PredictionResult.pending) continue;
+      final rawPts = (pred.pointsEarned ?? 0) + (pred.penPointsEarned ?? 0);
       matchUserPts.putIfAbsent(pred.matchId, () => <String, int>{})[pred.userId] =
-          (pred.pointsEarned ?? 0) + (pred.penPointsEarned ?? 0);
+          pred.isDoubleDown ? rawPts * 2 : rawPts;
     }
 
     // Build cumulative totals per user across matches in order
@@ -127,12 +128,13 @@ class _AnalyticsScreenState extends State<AnalyticsScreen>
       return _ChartData(matches: [], users: [], runningTotals: {});
     }
 
-    // matchId → userId → total points
+    // matchId → userId → total points (doubled if Double Down)
     final Map<String, Map<String, int>> matchUserPts = {};
     for (final pred in allPreds) {
       if (pred.result == PredictionResult.pending) continue;
+      final rawPts = (pred.pointsEarned ?? 0) + (pred.penPointsEarned ?? 0);
       matchUserPts.putIfAbsent(pred.matchId, () => <String, int>{})[pred.userId] =
-          (pred.pointsEarned ?? 0) + (pred.penPointsEarned ?? 0);
+          pred.isDoubleDown ? rawPts * 2 : rawPts;
     }
 
     // Find the first finished match where AI has a settled prediction
